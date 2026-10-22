@@ -71,7 +71,7 @@ std::wstring Unavailable(const Bridge::Snapshot& s, Feature f) {
 }
 
 SDK::UCharacterMovementComponent* Movement(SDK::ACharacter* character) {
-    return character ? character->CharacterMovement : nullptr;
+    return character ? G2F(character, ACharacter, CharacterMovement) : nullptr;
 }
 
 bool ForegroundIsGame() {
@@ -275,12 +275,14 @@ void CapturePawn(PersonalDamage& d, SDK::ACharacter* pawn) {
 // Re-applies personal multipliers after a respawn and forgets players who left.
 void RefreshPersonalDamage(SDK::UWorld* world, std::vector<Bridge::Player>* out, int localId) {
     std::unordered_set<int> connected;
-    if (!world || !world->GameState) return;
-    for (auto* ps : world->GameState->PlayerArray) {
-        if (!ps || ps->PlayerId < 0) continue;
-        connected.insert(ps->PlayerId);
+    auto* gameState = world ? G2F(world, UWorld, GameState) : nullptr;
+    if (!gameState) return;
+    for (auto* ps : G2F(gameState, AGameStateBase, PlayerArray)) {
+        const int playerId = ps ? G2F(ps, APlayerState, PlayerId) : -1;
+        if (playerId < 0) continue;
+        connected.insert(playerId);
         auto* pawn = Game::PawnOf(ps);
-        auto active = personalDamage.find(ps->PlayerId);
+        auto active = personalDamage.find(playerId);
         if (active != personalDamage.end() && active->second.playerKey != reinterpret_cast<uintptr_t>(ps)) {
             personalDamage.erase(active);
             active = personalDamage.end();
@@ -296,10 +298,10 @@ void RefreshPersonalDamage(SDK::UWorld* world, std::vector<Bridge::Player>* out,
         }
         if (out) {
             Bridge::Player p;
-            p.id = ps->PlayerId;
+            p.id = playerId;
             p.name = Game::PlayerName(ps);
             p.available = pawn != nullptr;
-            p.local = ps->PlayerId == localId;
+            p.local = playerId == localId;
             p.damageEnabled = active != personalDamage.end();
             if (p.damageEnabled) p.damage = active->second.multiplier;
             out->push_back(std::move(p));
@@ -353,9 +355,9 @@ std::vector<SDK::AActor*> NearbyItems(Game::Ctx& ctx, float radius, bool pickup)
     if (!spawned.ok || !ctx.character || !ctx.controller || !Bridge::ValidRadius(radius)) return {};
     const SDK::FVector origin = ctx.character->K2_GetActorLocation();
     auto scan = [&](SDK::ULevel* level) {
-        if (!level || level->OwningWorld != ctx.world) return;
+        if (!level || G2F(level, ULevel, OwningWorld) != ctx.world) return;
         for (auto* actor : level->Actors) {
-            if (!actor || actor->IsDefaultObject() || actor->bActorIsBeingDestroyed || !actor->IsA(spawned.type)) continue;
+            if (!actor || actor->IsDefaultObject() || Game::BeingDestroyed(actor) || !actor->IsA(spawned.type)) continue;
             if (!seen.insert(actor).second) continue;
             const SDK::FVector location = actor->K2_GetActorLocation();
             const double dx = location.X - origin.X, dy = location.Y - origin.Y, dz = location.Z - origin.Z;
@@ -385,8 +387,8 @@ std::vector<SDK::AActor*> NearbyItems(Game::Ctx& ctx, float radius, bool pickup)
             nearby.emplace_back(dx * dx + dy * dy + dz * dz, actor);
         }
     };
-    scan(ctx.world->PersistentLevel);
-    for (auto* level : ctx.world->Levels) scan(level);
+    scan(G2F(ctx.world, UWorld, PersistentLevel));
+    for (auto* level : G2F(ctx.world, UWorld, Levels)) scan(level);
     std::sort(nearby.begin(), nearby.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
     std::vector<SDK::AActor*> result;
     for (const auto& entry : nearby) result.push_back(entry.second);
@@ -399,7 +401,7 @@ void Pickup(Game::Ctx& ctx) {
     int attempts = 0;
     for (auto* actor : nearby) {
         if (++attempts > 32) break;  // the rest waits for the next half-second pass
-        if (!actor || actor->bActorIsBeingDestroyed) continue;
+        if (!actor || Game::BeingDestroyed(actor)) continue;
         auto* item = At(actor, spawned.item);
         if (!item) continue;
         Reflect::Call space(ctx.inventory, "HasAnySpaceForItem");
@@ -429,7 +431,7 @@ bool GiveItem(Game::Ctx& ctx, int playerId, const std::string& id, int count, st
     SDK::FDataTableRowHandle handle;
     handle.DataTable = row.table;
     handle.RowName = row.name;
-    Reflect::Call call(ctx.world->AuthorityGameMode, "GrantItemsToPlayer");
+    Reflect::Call call(G2F(ctx.world, UWorld, AuthorityGameMode), "GrantItemsToPlayer");
     call.Object("SurvivalPlayer", pawn).Raw("ItemData", &handle, sizeof(handle)).Int("Count", count);
     if (!call.Run()) {
         error = L"No se pudo generar el objeto. Consulta el registro.";
@@ -449,31 +451,31 @@ void SetSpeed(Game::Ctx& ctx, float multiplier) {
     speedViaCheat = false;
     auto* movement = Movement(ctx.character);
     if (!movement) return;
-    if (walkBaseline < 0) walkBaseline = movement->MaxWalkSpeed;
-    movement->MaxWalkSpeed = walkBaseline * multiplier;
+    if (walkBaseline < 0) walkBaseline = G2F(movement, UCharacterMovementComponent, MaxWalkSpeed);
+    G2F(movement, UCharacterMovementComponent, MaxWalkSpeed) = walkBaseline * multiplier;
 }
 
 void ApplyJump(Game::Ctx& ctx) {
     auto* movement = Movement(ctx.character);
     if (!movement) return;
     if (jump == 1.0f) {
-        if (jumpBaseline > 0) movement->JumpZVelocity = jumpBaseline;
+        if (jumpBaseline > 0) G2F(movement, UCharacterMovementComponent, JumpZVelocity) = jumpBaseline;
         jumpBaseline = -1;
         return;
     }
-    if (jumpBaseline < 0) jumpBaseline = movement->JumpZVelocity;
-    movement->JumpZVelocity = jumpBaseline * jump;
+    if (jumpBaseline < 0) jumpBaseline = G2F(movement, UCharacterMovementComponent, JumpZVelocity);
+    G2F(movement, UCharacterMovementComponent, JumpZVelocity) = jumpBaseline * jump;
 }
 
 void StartFlying(Game::Ctx& ctx) {
     auto* movement = Movement(ctx.character);
     if (!movement) return;
     if (flySpeedBaseline < 0) {
-        flySpeedBaseline = movement->MaxFlySpeed;
-        flyBrakeBaseline = movement->BrakingDecelerationFlying;
+        flySpeedBaseline = G2F(movement, UCharacterMovementComponent, MaxFlySpeed);
+        flyBrakeBaseline = G2F(movement, UCharacterMovementComponent, BrakingDecelerationFlying);
     }
-    movement->MaxFlySpeed = std::max(flySpeedBaseline, movement->MaxWalkSpeed * 2.0f);
-    movement->BrakingDecelerationFlying = std::max(flyBrakeBaseline, 2048.0f);
+    G2F(movement, UCharacterMovementComponent, MaxFlySpeed) = std::max(flySpeedBaseline, G2F(movement, UCharacterMovementComponent, MaxWalkSpeed) * 2.0f);
+    G2F(movement, UCharacterMovementComponent, BrakingDecelerationFlying) = std::max(flyBrakeBaseline, 2048.0f);
     movement->SetMovementMode(SDK::EMovementMode::MOVE_Flying, 0);
 }
 
@@ -481,22 +483,22 @@ void StopFlying(Game::Ctx& ctx) {
     auto* movement = Movement(ctx.character);
     if (!movement) return;
     if (flySpeedBaseline >= 0) {
-        movement->MaxFlySpeed = flySpeedBaseline;
-        movement->BrakingDecelerationFlying = flyBrakeBaseline;
+        G2F(movement, UCharacterMovementComponent, MaxFlySpeed) = flySpeedBaseline;
+        G2F(movement, UCharacterMovementComponent, BrakingDecelerationFlying) = flyBrakeBaseline;
     }
     flySpeedBaseline = flyBrakeBaseline = -1;
-    if (movement->MovementMode == SDK::EMovementMode::MOVE_Flying) movement->SetMovementMode(SDK::EMovementMode::MOVE_Falling, 0);
+    if (G2F(movement, UCharacterMovementComponent, MovementMode) == SDK::EMovementMode::MOVE_Flying) movement->SetMovementMode(SDK::EMovementMode::MOVE_Falling, 0);
 }
 
 void FlyControl(Game::Ctx& ctx) {
     auto* movement = Movement(ctx.character);
     if (!movement) return;
-    if (movement->MovementMode != SDK::EMovementMode::MOVE_Flying) StartFlying(ctx);
+    if (G2F(movement, UCharacterMovementComponent, MovementMode) != SDK::EMovementMode::MOVE_Flying) StartFlying(ctx);
     const bool keys = ForegroundIsGame();
     const bool up = keys && (GetAsyncKeyState(VK_SPACE) & 0x8000);
     const bool down = keys && ((GetAsyncKeyState(VK_LCONTROL) & 0x8000) || (GetAsyncKeyState(VK_RCONTROL) & 0x8000));
-    const double vertical = movement->MaxFlySpeed * 0.8;
-    movement->Velocity.Z = up ? vertical : (down ? -vertical : 0.0);
+    const double vertical = G2F(movement, UCharacterMovementComponent, MaxFlySpeed) * 0.8;
+    G2F(movement, UMovementComponent, Velocity).Z = up ? vertical : (down ? -vertical : 0.0);
 }
 
 void SetGod(Game::Ctx& ctx, bool enable) {
@@ -764,7 +766,7 @@ void Execute(Game::Ctx& ctx, const Bridge::Request& r, const Bridge::Snapshot& s
             break;
         }
         if (!require(Feature::DamagePersonal)) break;
-        const int id = r.scope == Bridge::DamageScope::Self ? ctx.playerState->PlayerId : r.playerId;
+        const int id = r.scope == Bridge::DamageScope::Self ? G2F(ctx.playerState, APlayerState, PlayerId) : r.playerId;
         auto* psTarget = Game::FindPlayer(ctx.world, id);
         auto* target = Game::PawnOf(psTarget);
         float* field = DamageField(target);
@@ -852,7 +854,7 @@ void Execute(Game::Ctx& ctx, const Bridge::Request& r, const Bridge::Snapshot& s
         auto items = NearbyItems(ctx, r.value, false);
         int count = 0;
         for (auto* actor : items) {
-            if (!actor || actor->bActorIsBeingDestroyed) continue;
+            if (!actor || Game::BeingDestroyed(actor)) continue;
             actor->SetLifeSpan(0.01f);
             ++count;
         }
@@ -984,11 +986,11 @@ void Execute(Game::Ctx& ctx, const Bridge::Request& r, const Bridge::Snapshot& s
         if (r.action == Action::TeleportToPlayer) {
             SDK::FVector to = other->K2_GetActorLocation();
             to.Z += 60;
-            if (Teleport(ctx, ctx.character, to, true)) done(L"Te has teletransportado con " + Game::PlayerName(other->PlayerState) + L".");
+            if (Teleport(ctx, ctx.character, to, true)) done(L"Te has teletransportado con " + Game::PlayerName(G2F(other, APawn, PlayerState)) + L".");
         } else {
             SDK::FVector to = ctx.character->K2_GetActorLocation();
             to.Z += 60;
-            if (Teleport(ctx, other, to, false)) done(Game::PlayerName(other->PlayerState) + L" está contigo.");
+            if (Teleport(ctx, other, to, false)) done(Game::PlayerName(G2F(other, APawn, PlayerState)) + L" está contigo.");
         }
         break;
     }
@@ -1203,7 +1205,7 @@ void Fill(Game::Ctx& ctx, Bridge::Snapshot& s) {
     s.hasBackPosition = hasBack;
 
     s.players.clear();
-    RefreshPersonalDamage(ctx.world, &s.players, ctx.playerState ? ctx.playerState->PlayerId : -1);
+    RefreshPersonalDamage(ctx.world, &s.players, ctx.playerState ? G2F(ctx.playerState, APlayerState, PlayerId) : -1);
 
     s.rules.clear();
     for (const auto& rule : rules) {

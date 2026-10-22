@@ -27,39 +27,52 @@ Classes& GetClasses() {
     return classes;
 }
 
+SDK::UWorld* CurrentWorld() {
+    auto* engine = SDK::UEngine::GetEngine();
+    auto* viewport = engine ? G2F(engine, UEngine, GameViewport) : nullptr;
+    return viewport ? G2F(viewport, UGameViewportClient, World) : nullptr;
+}
+
+bool BeingDestroyed(const SDK::AActor* actor) {
+    static const Reflect::BoolField field = Reflect::FindBool(Reflect::FindClass("Actor"), "bActorIsBeingDestroyed");
+    return !actor || (field && Reflect::GetBool(actor, field));
+}
+
 SDK::APlayerState* FindPlayer(SDK::UWorld* world, int id) {
-    if (!world || !world->GameState) return nullptr;
-    for (auto* p : world->GameState->PlayerArray)
-        if (p && p->PlayerId == id) return p;
+    auto* gameState = world ? G2F(world, UWorld, GameState) : nullptr;
+    if (!gameState) return nullptr;
+    for (auto* p : G2F(gameState, AGameStateBase, PlayerArray))
+        if (p && G2F(p, APlayerState, PlayerId) == id) return p;
     return nullptr;
 }
 
 SDK::ACharacter* PawnOf(SDK::APlayerState* player) {
-    auto* pawn = player ? player->PawnPrivate : nullptr;
+    auto* pawn = player ? G2F(player, APlayerState, PawnPrivate) : nullptr;
     auto* type = GetClasses().survivalPlayerCharacter;
-    if (!pawn || !type || !pawn->IsA(type) || pawn->bActorIsBeingDestroyed) return nullptr;
+    if (!pawn || !type || !pawn->IsA(type) || BeingDestroyed(pawn)) return nullptr;
     return static_cast<SDK::ACharacter*>(pawn);
 }
 
 std::wstring PlayerName(SDK::APlayerState* player) {
     // Read the replicated name in place (no allocation, unlike GetPlayerName()).
-    return player ? Reflect::ReadString(&player->PlayerNamePrivate) : std::wstring();
+    return player ? Reflect::ReadString(&G2F(player, APlayerState, PlayerNamePrivate)) : std::wstring();
 }
 
 SDK::UObject* EnsureCheatManager(Ctx& ctx) {
     auto* type = GetClasses().survivalCheatManager;
     if (!ctx.controller || !type) return nullptr;
-    if (ctx.controller->CheatManager && ctx.controller->CheatManager->IsA(type)) return ctx.controller->CheatManager;
+    auto& cheatManager = G2F(ctx.controller, APlayerController, CheatManager);
+    if (cheatManager && cheatManager->IsA(type)) return cheatManager;
     if (!ctx.host) return nullptr;
     // Same approach as Grounded2Minimal: create the game's own cheat manager for the local
     // controller. It only runs the game's built-in debug commands.
-    ctx.controller->CheatClass = type;
+    G2F(ctx.controller, APlayerController, CheatClass) = type;
     auto* created = SDK::UGameplayStatics::SpawnObject(type, ctx.controller);
     if (!created || !created->IsA(type)) {
         Log::Error("Sesión", "No se pudo crear el gestor de comandos del juego");
         return nullptr;
     }
-    ctx.controller->CheatManager = static_cast<SDK::UCheatManager*>(created);
+    cheatManager = static_cast<SDK::UCheatManager*>(created);
     Log::Info("Sesión", "Gestor de comandos del juego creado");
     return created;
 }
@@ -106,20 +119,20 @@ bool Fail(const char* why) {
 
 bool Resolve(Game::Ctx& ctx) {
     auto& classes = Game::GetClasses();
-    ctx.world = SDK::UWorld::GetWorld();
+    ctx.world = Game::CurrentWorld();
     if (!ctx.world) return Fail("no hay mundo cargado");
-    auto* instance = ctx.world->OwningGameInstance;
-    if (!instance || instance->LocalPlayers.Num() < 1) return Fail("sin jugador local");
-    auto* local = instance->LocalPlayers[0];
-    ctx.controller = local ? local->PlayerController : nullptr;
+    auto* instance = G2F(ctx.world, UWorld, OwningGameInstance);
+    if (!instance || G2F(instance, UGameInstance, LocalPlayers).Num() < 1) return Fail("sin jugador local");
+    auto* local = G2F(instance, UGameInstance, LocalPlayers)[0];
+    ctx.controller = local ? G2F(local, UPlayer, PlayerController) : nullptr;
     if (!ctx.controller || !classes.survivalPlayerController || !ctx.controller->IsA(classes.survivalPlayerController))
         return Fail("el controlador local no es de partida");
-    ctx.playerState = ctx.controller->PlayerState;
+    ctx.playerState = G2F(ctx.controller, AController, PlayerState);
     if (!ctx.playerState || !classes.survivalPlayerState || !ctx.playerState->IsA(classes.survivalPlayerState))
         return Fail("el estado del jugador no es de partida (SurvivalPlayerState)");
     lastResolveProblem.clear();
-    ctx.host = ctx.world->AuthorityGameMode != nullptr;
-    ctx.gameState = ctx.world->GameState;
+    ctx.host = G2F(ctx.world, UWorld, AuthorityGameMode) != nullptr;
+    ctx.gameState = G2F(ctx.world, UWorld, GameState);
     ctx.modes = Reflect::Obj(ctx.gameState, "SurvivalModeManagerComponent");
     ctx.settings = Reflect::Obj(ctx.modes, "GameModeSettings");
     ctx.perks = Reflect::Obj(ctx.playerState, "PerkComponent");
@@ -130,7 +143,7 @@ bool Resolve(Game::Ctx& ctx) {
         ctx.survival = Reflect::Obj(ctx.character, "SurvivalComponent");
         ctx.inventory = Reflect::Obj(ctx.character, "InventoryComponent");
     }
-    auto* cheats = ctx.controller->CheatManager;
+    auto* cheats = G2F(ctx.controller, APlayerController, CheatManager);
     ctx.cheats = cheats && classes.survivalCheatManager && cheats->IsA(classes.survivalCheatManager) ? cheats : nullptr;
     return true;
 }
@@ -263,7 +276,7 @@ void Tick() {
             mutationsDirty = false;
         }
         state.player = Game::PlayerName(ctx.playerState);
-        state.localPlayerId = ctx.playerState->PlayerId;
+        state.localPlayerId = G2F(ctx.playerState, APlayerState, PlayerId);
         Publish();
         nextSnapshot = now + 500;
     }

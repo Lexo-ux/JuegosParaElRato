@@ -391,6 +391,37 @@ bool Member(const char* sdkType, const char* member, size_t offset, size_t size)
     return Remember(key, true, {});
 }
 
+int32_t Offset(const char* sdkType, const char* member, size_t sdkOffset, size_t size) {
+    static std::unordered_map<std::string, int32_t> offsets;
+    std::string key = std::string(sdkType) + "::" + member;
+    {
+        std::lock_guard lock(mutex);
+        if (auto it = offsets.find(key); it != offsets.end()) return it->second;
+    }
+    const auto kind = sdkType[0] == 'F' ? Reflect::Kind::ScriptStruct : Reflect::Kind::Class;
+    auto* type = Reflect::FindStruct(UeName(sdkType), kind);
+    auto* property = type ? Reflect::FindProperty(type, member) : nullptr;
+    std::lock_guard lock(mutex);
+    int32_t result = -1;
+    if (!type) {
+        Remember(key, false, "No existe el tipo " + UeName(sdkType));
+    } else if (!property) {
+        Remember(key, false, key + " ya no existe");
+    } else {
+        const size_t actualSize = static_cast<size_t>(property->ElementSize) * static_cast<size_t>(std::max(property->ArrayDim, 1));
+        if (actualSize != size) {
+            Remember(key, false, key + " cambió de tamaño (" + std::to_string(actualSize) + "; esperado " + std::to_string(size) + ")");
+        } else {
+            result = property->Offset;
+            if (static_cast<size_t>(result) != sdkOffset)
+                Log::Info("Compatibilidad", key + " se movió a " + Log::Hex(result) + " (SDK " + Log::Hex(sdkOffset) + "); se usa la posición real");
+        }
+    }
+    // Only successful lookups are permanent: a Blueprint class may not be loaded yet.
+    if (result >= 0) offsets[key] = result;
+    return result;
+}
+
 bool Function(const char* ueClass, const char* function, size_t paramsSize) {
     std::string key = std::string(ueClass) + "." + function + "()";
     {

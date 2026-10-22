@@ -45,6 +45,10 @@ struct Classes {
 
 Classes& GetClasses();
 
+// Engine objects read at their runtime offsets (Session.cpp).
+SDK::UWorld* CurrentWorld();   // GEngine->GameViewport->World
+bool BeingDestroyed(const SDK::AActor* actor);
+
 // Shared helpers (Session.cpp)
 SDK::APlayerState* FindPlayer(SDK::UWorld* world, int id);
 SDK::ACharacter* PawnOf(SDK::APlayerState* player);

@@ -1,5 +1,11 @@
 # Cambios
 
+## 0.3.4 — Campos del motor en su posición real
+
+- Con 0.3.3 el panel ya localizaba objetos, nombres y `ProcessEvent` en Grounded 2 0.6.0.3, pero se ponía en pausa: en esta versión las clases de Unreal crecieron (`AActor` +0x10, `UEngine` +0x78, `UMovementComponent` +8) y los campos del motor ya no estaban donde dice el SDK.
+- Todos los campos del motor que usa el panel (mundo, jugadores, controlador, estado del jugador, gestor de comandos, movimiento…) se leen ahora en la posición que informa el propio juego, buscados por nombre y comprobando su tamaño. Solo se pone en pausa si un campo desaparece o cambia de tamaño.
+- El mundo actual se obtiene sin la función `GetWorld` del SDK (que usaba la posición antigua).
+
 ## 0.3.3 — Formato de elemento de Grounded 2 0.6.0.3
 
 - El volcado del registro de 0.3.2 mostró el cambio: en 0.6.0.3 cada elemento de la tabla de objetos empieza con una palabra de indicadores (`RootSet`…) y el puntero al objeto está 8 bytes después. El panel detecta ahora la posición del puntero dentro del elemento (+0, +8 o +0x10).

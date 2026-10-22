@@ -13,6 +13,8 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
 namespace Reflect {
@@ -135,6 +137,16 @@ namespace Guard {
 std::string UeName(const char* sdkName);
 
 bool Member(const char* sdkType, const char* member, size_t offset, size_t size);
+
+// Offset of a member in the *running* game, looked up by name and checked against the SDK's
+// size. Engine classes grew in Grounded 2 0.6.0.3 (AActor +0x10, UEngine +0x78...), so members
+// are no longer read at the SDK's offsets. Returns -1 if the member is gone or changed size.
+int32_t Offset(const char* sdkType, const char* member, size_t sdkOffset, size_t size);
+
+template <class T>
+inline T* At(const void* object, int32_t offset) {
+    return reinterpret_cast<T*>(reinterpret_cast<uintptr_t>(object) + static_cast<uintptr_t>(offset));
+}
 bool Function(const char* ueClass, const char* function, size_t paramsSize);
 bool Size(const char* sdkType, size_t size);
 
@@ -147,3 +159,20 @@ void Reset();
 #define G2_FUNC(C, F) ::Guard::Function(#C, #F, sizeof(SDK::Params::C##_##F))
 #define G2_FUNC0(C, F) ::Guard::Function(#C, #F, 0)
 #define G2_SIZE(T) ::Guard::Size(#T, sizeof(SDK::T))
+
+// True when the member exists in the running game with the SDK's size (any offset).
+#define G2_FIELD_OK(T, M) (::Guard::Offset(#T, #M, offsetof(SDK::T, M), sizeof(SDK::T::M)) >= 0)
+
+// Reference to member M of `obj` (an SDK::T or subclass) at its runtime offset:
+//   G2F(world, UWorld, GameState)  instead of  world->GameState
+// The offset is resolved once per call site; the SDK offset is only a last-resort fallback
+// (EngineLayoutOk() checks every member used this way before the panel starts).
+#define G2F(obj, T, M)                                                                                              \
+    (*::Guard::At<std::remove_reference_t<decltype(std::declval<SDK::T&>().M)>>(                                    \
+        (obj), [] {                                                                                                  \
+            static const int32_t offset = [] {                                                                       \
+                const int32_t found = ::Guard::Offset(#T, #M, offsetof(SDK::T, M), sizeof(SDK::T::M));             \
+                return found >= 0 ? found : static_cast<int32_t>(offsetof(SDK::T, M));                               \
+            }();                                                                                                     \
+            return offset;                                                                                           \
+        }()))

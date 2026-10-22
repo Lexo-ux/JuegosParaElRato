@@ -80,7 +80,7 @@ void EvaluateFeatures(Ctx& ctx, std::array<Bridge::FeatureState, Bridge::kFeatur
     SDK::UStruct* playerState = ctx.playerState ? static_cast<SDK::UStruct*>(ctx.playerState->Class) : Reflect::FindClass("SurvivalPlayerState");
     SDK::UStruct* controller = ctx.controller ? static_cast<SDK::UStruct*>(ctx.controller->Class) : Reflect::FindClass("SurvivalPlayerController");
     SDK::UStruct* settings = ctx.settings ? static_cast<SDK::UStruct*>(ctx.settings->Class) : Reflect::FindClass("SurvivalGameModeSettings");
-    SDK::UStruct* gameMode = ctx.world && ctx.world->AuthorityGameMode ? static_cast<SDK::UStruct*>(ctx.world->AuthorityGameMode->Class) : nullptr;
+    SDK::UStruct* gameMode = ctx.world && G2F(ctx.world, UWorld, AuthorityGameMode) ? static_cast<SDK::UStruct*>(G2F(ctx.world, UWorld, AuthorityGameMode)->Class) : nullptr;
     SDK::UStruct* health = Reflect::FindClass("HealthComponent");
     SDK::UStruct* stamina = Reflect::FindClass("StaminaComponent");
     SDK::UStruct* survival = Reflect::FindClass("SurvivalComponent");

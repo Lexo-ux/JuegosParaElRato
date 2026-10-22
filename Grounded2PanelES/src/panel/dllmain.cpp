@@ -30,35 +30,36 @@ bool LiveObject(const SDK::UObject* object) {
     return index >= 0 && index < SDK::UObject::GObjects->Num() && SDK::UObject::GObjects->GetByIndex(index) == object;
 }
 
-// Engine members the panel reads directly through the SDK. If Unreal itself changed, stop.
+// Engine members the panel reads through G2F (at their runtime offsets). They may move between
+// game builds; if one disappeared or changed size, stop.
 bool EngineLayoutOk() {
     bool ok = true;
-    ok &= G2_MEMBER(UWorld, PersistentLevel);
-    ok &= G2_MEMBER(UWorld, AuthorityGameMode);
-    ok &= G2_MEMBER(UWorld, GameState);
-    ok &= G2_MEMBER(UWorld, Levels);
-    ok &= G2_MEMBER(UWorld, OwningGameInstance);
-    ok &= G2_MEMBER(UGameInstance, LocalPlayers);
-    ok &= G2_MEMBER(UPlayer, PlayerController);
-    ok &= G2_MEMBER(UEngine, GameViewport);
-    ok &= G2_MEMBER(UGameViewportClient, World);
-    ok &= G2_MEMBER(AController, PlayerState);
-    ok &= G2_MEMBER(APlayerController, CheatManager);
-    ok &= G2_MEMBER(APlayerController, CheatClass);
-    ok &= G2_MEMBER(APlayerState, PlayerId);
-    ok &= G2_MEMBER(APlayerState, PawnPrivate);
-    ok &= G2_MEMBER(APlayerState, PlayerNamePrivate);
-    ok &= G2_MEMBER(APawn, PlayerState);
-    ok &= G2_MEMBER(AGameStateBase, PlayerArray);
-    ok &= G2_MEMBER(ACharacter, CharacterMovement);
-    ok &= G2_MEMBER(UMovementComponent, Velocity);
-    ok &= G2_MEMBER(UCharacterMovementComponent, MaxWalkSpeed);
-    ok &= G2_MEMBER(UCharacterMovementComponent, JumpZVelocity);
-    ok &= G2_MEMBER(UCharacterMovementComponent, MaxFlySpeed);
-    ok &= G2_MEMBER(UCharacterMovementComponent, BrakingDecelerationFlying);
-    ok &= G2_MEMBER(UCharacterMovementComponent, MovementMode);
-    ok &= G2_MEMBER(UDataTable, RowStruct);
-    ok &= G2_MEMBER(ULevel, OwningWorld);
+    ok &= G2_FIELD_OK(UWorld, PersistentLevel);
+    ok &= G2_FIELD_OK(UWorld, AuthorityGameMode);
+    ok &= G2_FIELD_OK(UWorld, GameState);
+    ok &= G2_FIELD_OK(UWorld, Levels);
+    ok &= G2_FIELD_OK(UWorld, OwningGameInstance);
+    ok &= G2_FIELD_OK(UGameInstance, LocalPlayers);
+    ok &= G2_FIELD_OK(UPlayer, PlayerController);
+    ok &= G2_FIELD_OK(UEngine, GameViewport);
+    ok &= G2_FIELD_OK(UGameViewportClient, World);
+    ok &= G2_FIELD_OK(AController, PlayerState);
+    ok &= G2_FIELD_OK(APlayerController, CheatManager);
+    ok &= G2_FIELD_OK(APlayerController, CheatClass);
+    ok &= G2_FIELD_OK(APlayerState, PlayerId);
+    ok &= G2_FIELD_OK(APlayerState, PawnPrivate);
+    ok &= G2_FIELD_OK(APlayerState, PlayerNamePrivate);
+    ok &= G2_FIELD_OK(APawn, PlayerState);
+    ok &= G2_FIELD_OK(AGameStateBase, PlayerArray);
+    ok &= G2_FIELD_OK(ACharacter, CharacterMovement);
+    ok &= G2_FIELD_OK(UMovementComponent, Velocity);
+    ok &= G2_FIELD_OK(UCharacterMovementComponent, MaxWalkSpeed);
+    ok &= G2_FIELD_OK(UCharacterMovementComponent, JumpZVelocity);
+    ok &= G2_FIELD_OK(UCharacterMovementComponent, MaxFlySpeed);
+    ok &= G2_FIELD_OK(UCharacterMovementComponent, BrakingDecelerationFlying);
+    ok &= G2_FIELD_OK(UCharacterMovementComponent, MovementMode);
+    ok &= G2_FIELD_OK(UDataTable, RowStruct);
+    ok &= G2_FIELD_OK(ULevel, OwningWorld);
     ok &= G2_SIZE(FVector);
     ok &= G2_SIZE(FRotator);
     ok &= G2_SIZE(FDataTableRowHandle);
@@ -67,12 +68,16 @@ bool EngineLayoutOk() {
 
 SDK::APlayerController* LocalController() {
     auto* engine = SDK::UEngine::GetEngine();
-    if (!LiveObject(engine) || !LiveObject(engine->GameViewport)) return nullptr;
-    auto* world = engine->GameViewport->World;
-    if (!LiveObject(world) || !LiveObject(world->OwningGameInstance)) return nullptr;
-    auto& players = world->OwningGameInstance->LocalPlayers;
+    if (!LiveObject(engine)) return nullptr;
+    auto* viewport = G2F(engine, UEngine, GameViewport);
+    if (!LiveObject(viewport)) return nullptr;
+    auto* world = G2F(viewport, UGameViewportClient, World);
+    if (!LiveObject(world)) return nullptr;
+    auto* instance = G2F(world, UWorld, OwningGameInstance);
+    if (!LiveObject(instance)) return nullptr;
+    auto& players = G2F(instance, UGameInstance, LocalPlayers);
     if (players.Num() < 1 || !LiveObject(players[0])) return nullptr;
-    auto* controller = players[0]->PlayerController;
+    auto* controller = G2F(players[0], UPlayer, PlayerController);
     return LiveObject(controller) ? controller : nullptr;
 }
 
