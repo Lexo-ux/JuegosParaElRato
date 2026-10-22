@@ -62,7 +62,9 @@ cp "$BUILD/mingw/Grounded2PanelES.dll" "$BUILD/mingw/IniciarPanel.exe" "$BUILD/m
 cp "$ROOT/LEEME.txt" "$DEST/LEEME.txt"
 cp "$ROOT/LICENSE" "$DEST/LICENCIA-GPL-3.0.txt"
 mkdir -p "$DEST/licencias"
-cp "$ROOT/assets/fonts/"*.txt "$ROOT/third_party/imgui/LICENSE.txt" "$DEST/licencias/" 2>/dev/null || true
+cp "$ROOT/assets/fonts/"*.txt "$DEST/licencias/"
+mv "$DEST/licencias/LEEME.txt" "$DEST/licencias/LEEME-fuentes.txt"
+cp "$ROOT/third_party/imgui/LICENSE.txt" "$DEST/licencias/LICENSE-DearImGui.txt"
 # Código fuente correspondiente (GPL-3.0)
 git -C "$ROOT" archive --format=zip --prefix="Grounded2PanelES-$VERSION/" -o "$DEST/Codigo_fuente.zip" HEAD -- . 2>/dev/null \
     || (cd "$ROOT/.." && zip -qr "$DEST/Codigo_fuente.zip" "$(basename "$ROOT")" -x "*/build/*")
