@@ -1,0 +1,127 @@
+GROUNDED 2 · PANEL EN ESPAÑOL 0.3.0 (Steam, Windows de 64 bits)
+=================================================================
+
+Panel de trucos y utilidades en español para Grounded 2, con interfaz nueva,
+iniciador propio y compatible con Vortex. Derivado de Grounded2Minimal
+(x0reaxeax) y de Grounded2PanelES 0.2.0. Licencia GPL-3.0-or-later; el código
+fuente completo va en Codigo_fuente.zip.
+
+IMPORTANTE
+- Haz copia de tus partidas (el iniciador lo hace solo antes de abrir el juego).
+- Solo funciona en partidas en solitario o si eres el ANFITRIÓN.
+- Por qué esta versión aguanta actualizaciones: ya no usa direcciones fijas del
+  juego. Al arrancar localiza solo las estructuras del motor y comprueba, una a
+  una, que cada función del juego que va a usar sigue existiendo con los mismos
+  parámetros. Si una actualización cambió algo, esa función aparece desactivada
+  (con el motivo) en lugar de arriesgar la partida. Si cambió el propio motor
+  Unreal, el panel se queda en pausa y no toca nada.
+- Estado de las pruebas: compilado y verificado fuera del juego (pruebas
+  automáticas, motor simulado y la interfaz real en ejecución). NO se ha podido
+  probar dentro de Grounded 2 0.6.0. Si algo falla, envía el registro
+  (Ajustes > Abrir registro).
+
+
+INSTALACIÓN CON VORTEX
+----------------------
+1. Si tenías la versión 0.2.0, desactívala y elimínala en Vortex (pestaña Mods).
+2. Arrastra Grounded2PanelES-Steam-0.3.0.zip a la pestaña Mods de Vortex,
+   pulsa Instalar y después Activar. Vortex lo despliega en:
+     <carpeta del juego>\Augusta\Binaries\Win64\Grounded2PanelES\
+3. (Recomendado) Añade el iniciador como herramienta en Vortex:
+     Panel principal > Herramientas > Añadir herramienta
+       Nombre:     Grounded 2 + Panel
+       Destino:    <carpeta del juego>\Augusta\Binaries\Win64\Grounded2PanelES\IniciarPanel.exe
+       Argumentos: --auto
+   Con eso, un clic abre el juego (con copia de seguridad previa) y carga el panel.
+
+Sin Vortex: extrae el zip en la carpeta del juego (que se fusione la carpeta
+Augusta) o en cualquier carpeta. IniciarPanel.exe y Grounded2PanelES.dll deben
+quedar juntos.
+
+
+USO
+---
+- Ejecuta IniciarPanel.exe:
+    · Juego cerrado  -> «Abrir Grounded 2 con el panel»: copia de seguridad,
+      abre el juego por Steam, espera a que cargue y mete el panel.
+    · Juego abierto  -> «Cargar el panel en el juego».
+    · Panel cargado  -> «Mostrar el panel».
+  Argumentos: --auto (abre/carga y se cierra), --cargar (solo carga).
+- Dentro del juego, F8 muestra u oculta el panel (se puede cambiar en Ajustes).
+  La X lo oculta. El candado lo deja siempre encima (útil en ventana sin bordes).
+- Puedes cargar el panel ya en el menú principal: espera a que entres en una
+  partida y se activa solo. Está preparado para que cambies de partida sin
+  reiniciar el juego (en la 0.2.0 había que reiniciarlo).
+
+
+FUNCIONES
+---------
+Inicio          Estado, salud/comida/agua, accesos y acciones rápidas,
+                resumen de compatibilidad con tu versión.
+Objetos         Catálogo con nombres en español (leídos del propio juego),
+                búsqueda sin tildes, favoritos, recientes, cantidades 1-999,
+                dar objetos a otros jugadores, kits rápidos (materiales,
+                construcción, comida y curación, exploración, mejoras).
+Jugador         Modo dios, resistencia infinita, sin hambre ni sed, curarse,
+                restauración total, reanimarse, velocidad, salto, modo vuelo
+                (Espacio sube / Ctrl baja) y atravesar paredes.
+Daño            (de la 0.2.0) daño causado por alcance: solo tú (por defecto),
+                un jugador elegido o todo el mundo; daño enemigo del mundo.
+Mutaciones      (de la 0.2.0) activar/desactivar, desbloquear niveles, ranuras.
+Construcción    Fabricar recetas aprendidas sin recursos, construir sin recursos,
+                construir sin restricciones, completar planos, integridad
+                estructural y resistencia de las construcciones.
+Recogida        (de la 0.2.0) recogida automática con radio ajustable y
+                comprobación del espacio de la mochila; eliminar objetos
+                cercanos con radio propio y confirmación.
+Mundo           Fijar/bloquear la hora, avanzar 1 o 6 horas, velocidad del
+                tiempo, regenerar recursos, terminar asedios, ocultar la HUD y
+                TODAS las reglas de partida personalizada (criaturas que te
+                ignoran, daño por caída, hambre, sed, deterioro, etc.).
+Teletransporte  Tu posición, puntos guardados con nombre, volver atrás, avanzar,
+                ir con un jugador, traerlo o traer a todo el grupo.
+Criaturas       Domar la más cercana, reanimar montura, generar y montar
+                (hormigas soldado, mariquita, arañas, chinche) y aracnofobia.
+Progreso        (de la 0.2.0) molares normales y dorados, ciencia, puntos de
+                montura; además desbloqueos (recetas, árboles tecnológicos,
+                temas SCA.B, puntos de interés y mapa, omniherramienta),
+                reparar todo el equipo y recuperar mochilas.
+Ajustes         Tecla, siempre encima, opacidad, tamaño de la interfaz,
+                confirmaciones, restaurar ajustes de la sesión, carpeta de
+                datos y detalle de compatibilidad.
+Registro        Lo que hace el panel, para diagnosticar problemas.
+
+«Restaurar ajustes de sesión» devuelve a su valor inicial todo lo que el panel
+cambia de forma temporal (reglas, daño, ranuras, velocidad, salto, vuelo, modo
+dios, recogida). No revierte objetos, puntos, ciencia, hora ni desbloqueos.
+
+
+ARCHIVOS
+--------
+- %LOCALAPPDATA%\Grounded2PanelES\  registro.txt, ajustes.ini (tecla,
+  favoritos, puntos guardados), iniciador.ini. Fuera de la carpeta del juego
+  para que Vortex no los vea como cambios.
+- Copias de partidas: «Partidas guardadas\Grounded2 - Copias del panel»
+  (se conservan las 15 más recientes).
+- VistaPrevia.exe: abre la interfaz con datos de ejemplo, sin el juego.
+
+
+PROBLEMAS FRECUENTES
+--------------------
+- El antivirus avisa del iniciador: cargar una DLL en otro proceso es lo que
+  hacen estos mods; el código fuente está incluido para revisarlo o compilarlo.
+- «Solo el anfitrión puede usar el panel»: crea tú la partida.
+- Funciones en gris: pasa el ratón por encima para ver el motivo. Aparecen así
+  cuando una actualización del juego cambió lo que necesitan.
+- «El motor cambió… en pausa»: la actualización tocó Unreal Engine; espera una
+  versión nueva del panel. No se ha modificado nada.
+- No aparece la ventana: pulsa F8 con el juego en primer plano o vuelve a
+  ejecutar el iniciador («Mostrar el panel»).
+
+
+CRÉDITOS
+--------
+Grounded2Minimal - x0reaxeax (GPL-3.0) · SDK de Dumper-7 publicado por
+Grounded2Minimal · Dear ImGui (MIT) · Nunito y Fredoka (SIL OFL 1.1) ·
+Font Awesome Free (SIL OFL 1.1 / CC BY 4.0). Grounded 2 pertenece a Obsidian
+Entertainment / Xbox Game Studios; este mod no está afiliado a ellos.

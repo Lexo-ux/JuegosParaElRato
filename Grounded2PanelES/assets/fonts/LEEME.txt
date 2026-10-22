@@ -1,0 +1,8 @@
+Fuentes incluidas en el panel (se incrustan como recursos en la DLL y el iniciador)
+
+- Nunito (SemiBold y ExtraBold) - SIL Open Font License 1.1 - OFL-Nunito.txt
+- Fredoka (SemiBold)             - SIL Open Font License 1.1 - OFL-Fredoka.txt
+- Font Awesome Free 6.7.2 Solid  - SIL OFL 1.1 (fuente) / CC BY 4.0 (iconos) - LICENSE-FontAwesome.txt
+
+Son subconjuntos generados con fonttools (pyftsubset): solo los caracteres latinos y los
+iconos que usa el panel. Para regenerarlos ver tools/subset_fonts.sh.

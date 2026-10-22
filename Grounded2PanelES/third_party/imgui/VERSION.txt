@@ -1,0 +1,1 @@
+Dear ImGui v1.91.9 (https://github.com/ocornut/imgui, tag v1.91.9), licencia MIT. Solo se incluyen el núcleo y los backends Win32 + DirectX 11.

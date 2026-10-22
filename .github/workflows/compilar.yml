@@ -1,0 +1,25 @@
+name: Compilar Grounded2PanelES
+
+on:
+  push:
+    paths: ["Grounded2PanelES/**", ".github/workflows/compilar.yml"]
+  pull_request:
+    paths: ["Grounded2PanelES/**"]
+  workflow_dispatch:
+
+jobs:
+  compilar:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: Grounded2PanelES
+    steps:
+      - uses: actions/checkout@v4
+      - name: Instalar MinGW-w64
+        run: sudo apt-get update && sudo apt-get install -y g++-mingw-w64-x86-64-posix cmake unzip zip
+      - name: Compilar, probar y empaquetar
+        run: ./build.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Grounded2PanelES
+          path: Grounded2PanelES/dist/*.zip

@@ -1,0 +1,38 @@
+// Recursos del panel (generado por CMake a partir de Panel.rc.in)
+#include <windows.h>
+
+1 ICON "@G2_ASSETS@/icon.ico"
+
+101 RCDATA "@G2_ASSETS@/fonts/Nunito_600SemiBold-subset.ttf"
+102 RCDATA "@G2_ASSETS@/fonts/Nunito_800ExtraBold-subset.ttf"
+103 RCDATA "@G2_ASSETS@/fonts/Fredoka_600SemiBold-subset.ttf"
+104 RCDATA "@G2_ASSETS@/fonts/fa-solid-subset.ttf"
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION @PROJECT_VERSION_MAJOR@,@PROJECT_VERSION_MINOR@,@PROJECT_VERSION_PATCH@,0
+PRODUCTVERSION @PROJECT_VERSION_MAJOR@,@PROJECT_VERSION_MINOR@,@PROJECT_VERSION_PATCH@,0
+FILEFLAGSMASK 0x3fL
+FILEFLAGS 0x0L
+FILEOS VOS_NT_WINDOWS32
+FILETYPE @G2_FILETYPE@
+FILESUBTYPE 0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "0c0a04b0"
+        BEGIN
+            VALUE "CompanyName", "Grounded2PanelES (GPL-3.0)"
+            VALUE "FileDescription", "@G2_DESCRIPTION@"
+            VALUE "FileVersion", "@PROJECT_VERSION@"
+            VALUE "InternalName", "@G2_NAME@"
+            VALUE "LegalCopyright", "GPL-3.0-or-later. Basado en Grounded2Minimal (x0reaxeax)"
+            VALUE "OriginalFilename", "@G2_NAME@"
+            VALUE "ProductName", "Grounded 2 - Panel en espanol"
+            VALUE "ProductVersion", "@PROJECT_VERSION@"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0c0a, 1200
+    END
+END
