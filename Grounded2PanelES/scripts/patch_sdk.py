@@ -153,6 +153,46 @@ def fix_tail_padding(lines, sizes):
     return out, changed
 
 
+TUOBJECTARRAY = """// TUObjectArray (Grounded2PanelES): the panel detects the layout at runtime.
+//   flat:    { FUObjectItem* Objects; int32 MaxElements; int32 NumElements; }
+//   chunked: { FUObjectItem** Chunks; FUObjectItem* PreAllocated; int32 MaxElements; int32 NumElements; ... }
+class TUObjectArray final
+{
+public:
+	static inline bool  Chunked = false;
+	static inline int32 ItemSize = 0x18;
+	static inline int32 NumOffset = 0x0C;
+	static inline int32 ElementsPerChunk = 0x10000;
+
+	uint8 Raw[0x10];
+
+public:
+	inline int32 Num() const
+	{
+		return *reinterpret_cast<const int32*>(reinterpret_cast<const uint8*>(this) + NumOffset);
+	}
+
+	inline class UObject* GetByIndex(const int32 Index) const
+	{
+		if (Index < 0 || Index >= Num())
+			return nullptr;
+
+		const uint8* Base = *reinterpret_cast<uint8* const*>(this);
+		if (!Base)
+			return nullptr;
+
+		if (Chunked)
+		{
+			const uint8* Chunk = reinterpret_cast<uint8* const*>(Base)[Index / ElementsPerChunk];
+			if (!Chunk)
+				return nullptr;
+			return *reinterpret_cast<class UObject* const*>(Chunk + static_cast<size_t>(Index % ElementsPerChunk) * ItemSize);
+		}
+		return *reinterpret_cast<class UObject* const*>(Base + static_cast<size_t>(Index) * ItemSize);
+	}
+};"""
+
+
 def main():
     if len(sys.argv) != 2:
         print(__doc__)
@@ -176,6 +216,12 @@ def main():
                   r"\tinline int32 \1", text)
     if "#include <cmath>" not in text:
         text = text.replace("#include <string>", "#include <string>\n#include <cmath>", 1)
+    # TUObjectArray con disposicion elegida en ejecucion (plana o por bloques, tamano de elemento),
+    # para que una actualizacion del juego que cambie el formato no deje el panel sin objetos.
+    start = text.index("class TUObjectArray final")
+    start = text.rindex("// Predefined struct TUObjectArray", 0, start)
+    end = text.index("DUMPER7_ASSERTS_TUObjectArray;", start) + len("DUMPER7_ASSERTS_TUObjectArray;")
+    text = text[:start] + TUOBJECTARRAY + text[end:]
     write(basic, text)
 
     # 2) GetWorld sin if constexpr

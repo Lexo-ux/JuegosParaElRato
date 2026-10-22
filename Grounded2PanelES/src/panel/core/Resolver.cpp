@@ -8,6 +8,7 @@
 #include "SDK/Basic.hpp"
 #include "SDK/CoreUObject_classes.hpp"
 
+#include <algorithm>
 #include <atomic>
 #include <unordered_set>
 
@@ -15,7 +16,6 @@ namespace Resolver {
 namespace {
 
 // Engine-level layout (UE 5.6), checked against the SDK's own asserts at compile time.
-constexpr size_t kObjectItemSize = sizeof(SDK::FUObjectItem);                    // 0x18
 constexpr size_t kObjectIndexOffset = offsetof(SDK::UObject, Index);            // 0x0C
 constexpr size_t kObjectClassOffset = offsetof(SDK::UObject, Class);            // 0x10
 constexpr size_t kObjectNameOffset = offsetof(SDK::UObject, Name);              // 0x18
@@ -26,7 +26,6 @@ Mem::Module game;
 // Diagnostics of the last scan (why candidates were rejected).
 struct ScanStats {
     int plausibleArrays = 0, unreadableItems = 0, badObjects = 0;
-    std::string firstBadObject;
     int noneHits = 0, badBlocks = 0, badDecode = 0;
 } stats;
 NamePool::View names;
@@ -63,71 +62,225 @@ std::vector<const Mem::Section*> DataSections() {
     return result;
 }
 
-bool ValidateObjectArray(uintptr_t candidate, Mem::RegionCache& cache, int& countOut) {
-    uintptr_t objects;
-    int32_t maxElements, numElements;
-    std::memcpy(&objects, reinterpret_cast<const void*>(candidate), 8);
-    std::memcpy(&maxElements, reinterpret_cast<const void*>(candidate + 8), 4);
-    std::memcpy(&numElements, reinterpret_cast<const void*>(candidate + 12), 4);
-    if (!objects || (objects & 7) || game.Contains(objects)) return false;
-    if (numElements < 0x1000 || numElements > maxElements || maxElements > 0x4000000 || maxElements < 0x10000) return false;
-    ++stats.plausibleArrays;
-    if (!cache.Readable(objects, kObjectItemSize * 64)) {
-        ++stats.unreadableItems;
-        return false;
+// ------------------------------------------------------------------ object array
+// Two layouts exist in Unreal 5: FFixedUObjectArray (flat) and FChunkedFixedUObjectArray
+// (chunks of 64K items). The item size also changed between engine builds, so both the layout
+// and the item stride are detected from the data instead of being taken from the SDK.
+constexpr int kStrides[] = {0x18, 0x10, 0x20, 0x28};
+constexpr int kChunkItems = 0x10000;
+
+struct ArrayLayout {
+    bool chunked = false;
+    int stride = 0x18;
+};
+
+// Best rejected candidate, for diagnostics.
+struct Probe {
+    uintptr_t address = 0;
+    bool chunked = false;
+    int stride = 0;
+    int valid = -1;   // consecutive valid objects found from index 0
+    std::string why;
+};
+
+std::string Hex(const void* address, size_t length) {
+    if (!Mem::IsReadable(address, length)) return "(ilegible)";
+    static const char* digits = "0123456789ABCDEF";
+    std::string out;
+    const auto* bytes = static_cast<const uint8_t*>(address);
+    for (size_t i = 0; i < length; ++i) {
+        if (i && i % 8 == 0) out += ' ';
+        out += digits[bytes[i] >> 4];
+        out += digits[bytes[i] & 15];
     }
+    return out;
+}
+
+// Number of consecutive valid UObjects (max 64) starting at item 0, and why it stopped.
+int CountValidObjects(uintptr_t items, int stride, std::string& why) {
     for (int i = 0; i < 64; ++i) {
         uintptr_t object;
-        std::memcpy(&object, reinterpret_cast<const void*>(objects + i * kObjectItemSize), 8);
-        if (!object || (object & 7) || !Mem::IsReadable(reinterpret_cast<const void*>(object), 0x28)) {
-            if (i > 0 && stats.firstBadObject.empty()) stats.firstBadObject = "objeto " + std::to_string(i) + " ilegible";
-            ++stats.badObjects;
-            return false;
+        std::memcpy(&object, reinterpret_cast<const void*>(items + static_cast<size_t>(i) * stride), 8);
+        if (!object || (object & 7) || !Mem::IsReadable(reinterpret_cast<const void*>(object), 0x30)) {
+            why = "objeto " + std::to_string(i) + " nulo o ilegible";
+            return i;
         }
         uintptr_t vtable, klass;
         int32_t index;
         std::memcpy(&vtable, reinterpret_cast<const void*>(object), 8);
         std::memcpy(&index, reinterpret_cast<const void*>(object + kObjectIndexOffset), 4);
         std::memcpy(&klass, reinterpret_cast<const void*>(object + kObjectClassOffset), 8);
-        if (!game.Contains(vtable) || index != i || !klass) {
-            if (i > 0 && stats.firstBadObject.empty())
-                stats.firstBadObject = "objeto " + std::to_string(i) + ": vtable " + (game.Contains(vtable) ? "ok" : "fuera") +
-                                       ", índice " + std::to_string(index);
-            ++stats.badObjects;
-            return false;
+        if (!game.Contains(vtable)) {
+            why = "objeto " + std::to_string(i) + ": vtable fuera del juego";
+            return i;
         }
-        if (!Mem::IsReadable(reinterpret_cast<const void*>(klass), 0x30)) return false;
+        if (index != i) {
+            why = "objeto " + std::to_string(i) + ": índice " + std::to_string(index);
+            return i;
+        }
+        if (!klass || !Mem::IsReadable(reinterpret_cast<const void*>(klass), 0x30)) {
+            why = "objeto " + std::to_string(i) + ": clase ilegible";
+            return i;
+        }
     }
-    countOut = numElements;
-    return true;
+    why.clear();
+    return 64;
+}
+
+void Remember(Probe& best, uintptr_t address, bool chunked, int stride, int valid, const std::string& why) {
+    if (valid <= best.valid) return;
+    best = {address, chunked, stride, valid, why};
+}
+
+bool ValidateObjectArray(uintptr_t candidate, Mem::RegionCache& cache, int& countOut, ArrayLayout& layoutOut, Probe& best) {
+    uint8_t header[0x20];
+    if (!cache.Readable(candidate, sizeof(header))) return false;
+    std::memcpy(header, reinterpret_cast<const void*>(candidate), sizeof(header));
+    auto q = [&](int at) { uintptr_t v; std::memcpy(&v, header + at, 8); return v; };
+    auto d = [&](int at) { int32_t v; std::memcpy(&v, header + at, 4); return v; };
+
+    for (const bool chunked : {false, true}) {
+        const uintptr_t first = q(0);
+        const int32_t maxElements = chunked ? d(0x10) : d(0x08);
+        const int32_t numElements = chunked ? d(0x14) : d(0x0C);
+        if (!first || (first & 7) || game.Contains(first) || first > 0x7FFFFFFFFFFFull) continue;
+        if (numElements < 0x1000 || numElements > maxElements || maxElements > 0x4000000) continue;
+        uintptr_t items = first;
+        if (chunked) {
+            const int32_t maxChunks = d(0x18), numChunks = d(0x1C);
+            const int32_t needed = (numElements + kChunkItems - 1) / kChunkItems;
+            if (numChunks < needed || numChunks > needed + 1 || numChunks > maxChunks || maxChunks > 0x1000) continue;
+            if (!cache.Readable(first, 8ull * numChunks)) continue;
+            std::memcpy(&items, reinterpret_cast<const void*>(first), 8);
+            if (!items || (items & 7)) continue;
+        }
+        ++stats.plausibleArrays;
+        if (!Mem::IsReadable(reinterpret_cast<const void*>(items), 0x28 * 64)) {
+            ++stats.unreadableItems;
+            Remember(best, candidate, chunked, 0, 0, "elementos ilegibles");
+            continue;
+        }
+        for (const int stride : kStrides) {
+            std::string why;
+            const int valid = CountValidObjects(items, stride, why);
+            if (valid == 64) {
+                countOut = numElements;
+                layoutOut = {chunked, stride};
+                return true;
+            }
+            Remember(best, candidate, chunked, stride, valid, why);
+        }
+        ++stats.badObjects;
+    }
+    return false;
+}
+
+// RIP-relative targets of instructions known to reference GObjects (from G2Dumper and common
+// Unreal code), validated like any other candidate.
+std::vector<uintptr_t> SignatureCandidates() {
+    static std::vector<uintptr_t> cached;
+    static bool scanned = false;
+    if (scanned) return cached;
+    scanned = true;
+    const auto* text = game.Find(".text");
+    if (!text) return cached;
+    struct Signature { std::vector<int> bytes; int displacement; };
+    const Signature signatures[] = {
+        // mov [GObjects], rdx; test eax, eax; jle; mov r8, rbx; mov r9d, ebx   (G2Dumper)
+        {{0x48, 0x89, 0x15, -1, -1, -1, -1, 0x85, 0xC0, 0x7E, -1, 0x4C, 0x8B, 0xC3, 0x44, 0x8B, 0xCB}, 3},
+        // mov rax, [GObjects]; mov rcx, [rax+rcx*8]; lea rax, [rcx+rdx*8]      (chunked access)
+        {{0x48, 0x8B, 0x05, -1, -1, -1, -1, 0x48, 0x8B, 0x0C, 0xC8, 0x48, 0x8D, 0x04, 0xD1}, 3},
+        // mov r9, [GObjects]; ... chunk access with r9
+        {{0x4C, 0x8B, 0x0D, -1, -1, -1, -1, 0x49, 0x8B, 0x0C, 0xC1}, 3},
+    };
+    const auto* start = reinterpret_cast<const uint8_t*>(text->start);
+    for (const auto& signature : signatures) {
+        const uint8_t* at = start;
+        size_t left = text->size;
+        for (int hits = 0; hits < 4; ++hits) {
+            const uint8_t* found = Mem::FindPattern(at, left, signature.bytes);
+            if (!found) break;
+            int32_t rel;
+            std::memcpy(&rel, found + signature.displacement, 4);
+            const uintptr_t target = reinterpret_cast<uintptr_t>(found) + signature.displacement + 4 + rel;
+            if (std::find(cached.begin(), cached.end(), target) == cached.end()) cached.push_back(target);
+            const size_t advance = static_cast<size_t>(found - at) + 1;
+            at += advance;
+            left -= advance;
+        }
+    }
+    return cached;
+}
+
+void UseObjectArray(uintptr_t address, const ArrayLayout& layout, int count, Report& report, const std::string& how) {
+    SDK::TUObjectArray::Chunked = layout.chunked;
+    SDK::TUObjectArray::ItemSize = layout.stride;
+    SDK::TUObjectArray::NumOffset = layout.chunked ? 0x14 : 0x0C;
+    SDK::UObject::GObjects.InitManually(reinterpret_cast<void*>(address));
+    report.objectsRva = address - game.base;
+    report.objectCount = count;
+    Log::Info("Resolver", "GObjects " + how + " en " + Log::Hex(report.objectsRva) + " (" +
+                          (layout.chunked ? "por bloques" : "plana") + ", elemento " + Log::Hex(layout.stride) + ", " +
+                          std::to_string(count) + " objetos)");
+}
+
+std::string Describe(const Probe& probe) {
+    if (probe.valid < 0) return "ninguna";
+    return Log::Hex(probe.address - game.base) + " " + (probe.chunked ? "bloques" : "plana") +
+           (probe.stride ? ", elemento " + Log::Hex(probe.stride) : std::string()) + ", " + std::to_string(probe.valid) +
+           "/64 objetos válidos" + (probe.why.empty() ? std::string() : ", " + probe.why);
 }
 
 bool FindObjects(Report& report) {
-    // Previous build's offset first (cheap), then a full scan of the writable sections.
     Mem::RegionCache cache;
     int count = 0;
-    uintptr_t hinted = game.base + static_cast<uintptr_t>(SDK::Offsets::GObjects);
-    for (const auto* section : DataSections()) {
-        if (section->Contains(hinted, 16) && ValidateObjectArray(hinted, cache, count)) {
-            SDK::UObject::GObjects.InitManually(reinterpret_cast<void*>(hinted));
-            report.objectsRva = hinted - game.base;
-            report.objectCount = count;
-            Log::Info("Resolver", "GObjects coincide con el offset conocido " + Log::Hex(report.objectsRva));
-            return true;
-        }
-    }
-    for (const auto* section : DataSections()) {
-        for (uintptr_t p = section->start; p + 16 <= section->start + section->size; p += 8) {
-            if (ValidateObjectArray(p, cache, count)) {
-                SDK::UObject::GObjects.InitManually(reinterpret_cast<void*>(p));
-                report.objectsRva = p - game.base;
-                report.objectCount = count;
-                Log::Info("Resolver", "GObjects localizado en " + Log::Hex(report.objectsRva) + " (" + section->name +
-                          "), " + std::to_string(count) + " objetos");
+    ArrayLayout layout;
+    Probe best, signatureBest;
+    // 1) Code signatures, 2) previous build's offset, 3) full scan of the writable sections.
+    const auto signatures = SignatureCandidates();
+    for (const uintptr_t target : signatures) {
+        for (const uintptr_t candidate : {target, target - 0x10, target + 0x10}) {
+            if (!game.Contains(candidate)) continue;
+            if (ValidateObjectArray(candidate, cache, count, layout, signatureBest)) {
+                UseObjectArray(candidate, layout, count, report, "localizado por firma");
                 return true;
             }
         }
     }
+    const uintptr_t hinted = game.base + static_cast<uintptr_t>(SDK::Offsets::GObjects);
+    for (const auto* section : DataSections()) {
+        if (section->Contains(hinted, 0x20) && ValidateObjectArray(hinted, cache, count, layout, best)) {
+            UseObjectArray(hinted, layout, count, report, "coincide con el offset conocido");
+            return true;
+        }
+    }
+    for (const auto* section : DataSections()) {
+        for (uintptr_t p = section->start; p + 0x20 <= section->start + section->size; p += 8) {
+            if (ValidateObjectArray(p, cache, count, layout, best)) {
+                UseObjectArray(p, layout, count, report, "localizado (" + section->name + ")");
+                return true;
+            }
+        }
+    }
+    // Diagnostics for the log: what the best candidates look like.
+    report.detail = "firmas: " + std::to_string(signatures.size());
+    for (const uintptr_t target : signatures) report.detail += " " + Log::Hex(target - game.base);
+    report.detail += "; mejor por firma: " + Describe(signatureBest) + "; mejor en el escaneo: " + Describe(best);
+    for (const Probe* probe : {&signatureBest, &best}) {
+        if (probe->valid < 0) continue;
+        const auto* header = reinterpret_cast<const uint8_t*>(probe->address);
+        report.detail += "\n  " + Log::Hex(probe->address - game.base) + " cabecera: " + Hex(header, 0x20);
+        uintptr_t first;
+        std::memcpy(&first, header, 8);
+        uintptr_t items = first;
+        if (probe->chunked) Mem::Read(first, items);
+        report.detail += "\n    elementos: " + Hex(reinterpret_cast<const void*>(items), 0x30);
+        uintptr_t object0 = 0;
+        if (Mem::Read(items, object0) && object0)
+            report.detail += "\n    objeto 0: " + Hex(reinterpret_cast<const void*>(object0), 0x30);
+    }
+    report.problem = "tabla de objetos no encontrada (" + std::to_string(stats.plausibleArrays) + " candidatas; mejor: " +
+                     Describe(signatureBest.valid >= best.valid ? signatureBest : best) + ")";
     return false;
 }
 
@@ -338,12 +491,8 @@ bool Run(Report& report) {
     if (report.objects && !report.names) report.names = FindNames(report);
     if (report.objects && report.names && !report.processEvent) FindProcessEvent(report);
     const bool ok = report.objects && report.names && report.processEvent;
-    report.problem.clear();
-    if (!report.objects) {
-        report.problem = "tabla de objetos no encontrada (" + std::to_string(stats.plausibleArrays) + " candidatas, " +
-                         std::to_string(stats.badObjects) + " con objetos inválidos" +
-                         (stats.firstBadObject.empty() ? std::string() : "; " + stats.firstBadObject) + ")";
-    } else if (!report.names) {
+    if (report.objects) report.problem.clear(), report.detail.clear();
+    if (report.objects && !report.names) {
         report.problem = "tabla de nombres no encontrada (" + std::to_string(stats.noneHits) + " coincidencias, " +
                          std::to_string(stats.badBlocks) + " bloques rechazados, " + std::to_string(stats.badDecode) +
                          " sin decodificar)";

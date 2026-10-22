@@ -90,6 +90,7 @@ DWORD WINAPI Startup(LPVOID) {
         if (attempt == 0) Session::SetStartupMessage(L"Buscando las estructuras internas del juego…", false);
         if (attempt == 15 || attempt == 60 || attempt % 300 == 299) {
             Log::Warn("Inicio", "Sigue sin localizarse: " + report.problem);
+            if (attempt == 15 && !report.detail.empty()) Log::Warn("Inicio", "Detalle: " + report.detail);
             Session::SetStartupMessage(L"Buscando las estructuras internas del juego… (" + Paths::Wide(report.problem) +
                                            L"). Si sigue así, copia el diagnóstico desde el iniciador.",
                                        false);

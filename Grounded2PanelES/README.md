@@ -1,4 +1,4 @@
-# Grounded 2 · Panel en español 0.3.1
+# Grounded 2 · Panel en español 0.3.2
 
 Panel de trucos y utilidades **en español** para **Grounded 2 (Steam)**, actualizado para la versión **0.6.0 «Rot and Ruin»**, con interfaz nueva, iniciador propio y paquete listo para **Vortex**.
 Derivado de [Grounded2Minimal](https://github.com/x0reaxeax/Grounded2Minimal) (x0reaxeax) y de Grounded2PanelES 0.2.0. Licencia GPL-3.0-or-later.
@@ -17,7 +17,7 @@ Derivado de [Grounded2Minimal](https://github.com/x0reaxeax/Grounded2Minimal) (x
 
 ## Descarga
 
-El paquete para Vortex está en [`releases/Grounded2PanelES-Steam-0.3.1.zip`](releases/Grounded2PanelES-Steam-0.3.1.zip). Instrucciones completas de instalación y uso en [`LEEME.txt`](LEEME.txt).
+El paquete para Vortex está en [`releases/Grounded2PanelES-Steam-0.3.2.zip`](releases/Grounded2PanelES-Steam-0.3.2.zip). Instrucciones completas de instalación y uso en [`LEEME.txt`](LEEME.txt).
 
 Resumen:
 1. En Vortex, desactiva y elimina la 0.2.0 si la tenías.
@@ -29,7 +29,7 @@ Resumen:
 
 La 0.2.0 dependía de direcciones de memoria y de un control de versión exactos de Grounded 2 0.5.1.1, así que dejó de funcionar con la 0.6.0. La 0.3.x:
 
-- **Localiza sola las estructuras de Unreal** al arrancar (`src/panel/core/Resolver.cpp`): busca la tabla de objetos en las secciones del ejecutable y la valida objeto a objeto, encuentra la tabla de nombres por sus primeras entradas («None», «ByteProperty») y la decodifica con código propio, y verifica el índice de `ProcessEvent`.
+- **Localiza sola las estructuras de Unreal** al arrancar (`src/panel/core/Resolver.cpp`): busca la tabla de objetos (por firmas de código y en las secciones del ejecutable, en formato plano o por bloques) y la valida objeto a objeto, encuentra la tabla de nombres por sus primeras entradas («None», «ByteProperty») y la decodifica con código propio, y verifica el índice de `ProcessEvent`.
 - **Usa las clases del juego por nombre** (`src/panel/core/Reflect.cpp`): cada miembro y cada función se buscan en el juego en ejecución, comprobando nombres, tipos y tamaños de parámetros antes de llamarlos.
 - **Desactiva en vez de romper** (`src/panel/game/Features.cpp`): cada función del panel declara lo que necesita; si una actualización lo cambió, aparece en gris con el motivo. Si cambió el motor Unreal, el panel se pone en pausa.
 
@@ -51,7 +51,7 @@ Linux, WSL o MSYS2 con MinGW-w64:
 
 ```sh
 sudo apt-get install g++-mingw-w64-x86-64-posix cmake python3 unzip zip curl
-./build.sh            # descarga y adapta el SDK, compila, pasa las pruebas y crea dist/Grounded2PanelES-Steam-0.3.1.zip
+./build.sh            # descarga y adapta el SDK, compila, pasa las pruebas y crea dist/Grounded2PanelES-Steam-0.3.2.zip
 ```
 
 - El SDK de Dumper-7 lo descarga de la publicación `sdk` de Grounded2Minimal (no se incluye aquí). `scripts/patch_sdk.py` lo adapta a GCC: offsets globales modificables en ejecución, relleno final de clases para reproducir el diseño de MSVC (verificado por las propias aserciones del SDK) y arreglos menores.

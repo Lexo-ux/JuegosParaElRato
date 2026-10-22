@@ -1,5 +1,12 @@
 # Cambios
 
+## 0.3.2 — Tabla de objetos de Grounded 2 0.6.0.3
+
+- Con Grounded 2 0.6.0.3 el panel se quedaba en «Buscando las estructuras internas del juego» porque no reconocía la tabla de objetos; esta versión amplía la búsqueda (pendiente de confirmar en el juego real).
+- La tabla de objetos se busca primero por firmas de código y después en las secciones del ejecutable, y se aceptan los dos formatos de Unreal 5 (plano y por bloques) y varios tamaños de elemento.
+- Si aun así no se encuentra, el registro incluye un volcado de los mejores candidatos para poder corregirlo.
+- El motor simulado de pruebas cubre ahora los dos formatos.
+
 ## 0.3.1 — Detección del juego
 
 - El iniciador detecta el juego aunque cambie el nombre del ejecutable (por proceso y por la ventana de Unreal) y avisa si el juego se ejecuta como administrador y el iniciador no.

@@ -28,6 +28,8 @@ struct FakeObject {
 };
 struct FakeItem { FakeObject* object; uint8_t pad[0x10]; };
 struct FakeObjectArray { FakeItem* objects; int32_t max; int32_t num; };
+// FChunkedFixedUObjectArray (Unreal 5 default): chunks of 64K items.
+struct FakeChunkedArray { FakeItem** chunks; FakeItem* preAllocated; int32_t max; int32_t num; int32_t maxChunks; int32_t numChunks; };
 struct FakeNamePool { uint64_t lock; uint32_t currentBlock; uint32_t cursor; uint8_t* blocks[8192]; };
 
 // Code bytes that look like UObject::ProcessEvent's flag checks:
@@ -43,6 +45,8 @@ void* vtable[0x200];
 // Padding so the globals do not sit at the start of the section.
 volatile uint8_t padding[0x4000] = {1};
 FakeObjectArray objectArray = {nullptr, 0, 0};
+volatile uint8_t padding3[0x800] = {1};
+FakeChunkedArray chunkedArray = {nullptr, nullptr, 0, 0, 0, 0};
 volatile uint8_t padding2[0x1000] = {1};
 FakeNamePool namePool = {1, 0, 0, {}};
 
@@ -75,7 +79,15 @@ int wmain(int argc, wchar_t** argv) {
     for (auto& entry : vtable) entry = reinterpret_cast<void*>(&Dummy);
     vtable[0x4C] = const_cast<unsigned char*>(kFakeProcessEvent);
 
-    const int count = 6000;
+    bool chunked = false;
+    const wchar_t* dll = L"Grounded2PanelES.dll";
+    for (int i = 1; i < argc; ++i) {
+        if (std::wstring(argv[i]) == L"--bloques") chunked = true;
+        else dll = argv[i];
+    }
+    std::printf("Formato de la tabla de objetos: %s\n", chunked ? "por bloques" : "plana");
+
+    const int count = 70000;   // more than one chunk
     objectArray.objects = static_cast<FakeItem*>(_aligned_malloc(sizeof(FakeItem) * 0x20000, 64));
     std::memset(objectArray.objects, 0, sizeof(FakeItem) * 0x20000);
     FakeObject* classObject = new FakeObject{};
@@ -87,15 +99,25 @@ int wmain(int argc, wchar_t** argv) {
         object->name = {static_cast<int32_t>(names[i % 4]), 0};
         objectArray.objects[i].object = object;
     }
-    objectArray.max = 0x20000;
-    objectArray.num = count;
+    if (chunked) {
+        chunkedArray.chunks = new FakeItem*[2]{objectArray.objects, objectArray.objects + 0x10000};
+        chunkedArray.max = 0x20000;
+        chunkedArray.num = count;
+        chunkedArray.maxChunks = 3;
+        chunkedArray.numChunks = 2;
+        // Only the panel reads it: keep the compiler from dropping the stores.
+        asm volatile("" : : "r"(&chunkedArray) : "memory");
+        std::printf("Tabla por bloques en %p\n", static_cast<void*>(&chunkedArray));
+    } else {
+        objectArray.max = 0x20000;
+        objectArray.num = count;
+    }
     std::printf("Objetos simulados en %p, tabla de nombres en %p\n", static_cast<void*>(&objectArray), static_cast<void*>(&namePool.blocks[0]));
 
-    const wchar_t* dll = argc > 1 ? argv[1] : L"Grounded2PanelES.dll";
     HMODULE module = LoadLibraryW(dll);
     std::printf("LoadLibrary: %s\n", module ? "correcto" : "fallo");
     if (!module) return 2;
-    Sleep(12000);
+    Sleep(20000);
 
     wchar_t* base = nullptr;
     SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &base);
