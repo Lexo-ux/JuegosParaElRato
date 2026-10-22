@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <exception>
 #include <string>
 
 namespace PanelWindow {
@@ -300,7 +301,14 @@ int Run(HINSTANCE module, bool preview, int startPage) {
 bool Start(HINSTANCE module) {
     if (thread) return true;
     thread = CreateThread(nullptr, 0, [](LPVOID parameter) -> DWORD {
-        return static_cast<DWORD>(Run(static_cast<HINSTANCE>(parameter), false));
+        try {
+            return static_cast<DWORD>(Run(static_cast<HINSTANCE>(parameter), false));
+        } catch (const std::exception& e) {
+            Log::Error("Ventana", std::string("Excepción interna; la ventana del panel se cierra: ") + e.what());
+        } catch (...) {
+            Log::Error("Ventana", "Excepción interna desconocida; la ventana del panel se cierra");
+        }
+        return 1;
     }, module, 0, nullptr);
     return thread != nullptr;
 }

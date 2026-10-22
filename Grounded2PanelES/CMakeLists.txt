@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(Grounded2PanelES VERSION 0.3.4 LANGUAGES C CXX RC)
+project(Grounded2PanelES VERSION 0.3.5 LANGUAGES C CXX RC)
 
 # Grounded 2 · Panel en español
 #   Grounded2PanelES.dll  -> panel que se carga dentro del juego

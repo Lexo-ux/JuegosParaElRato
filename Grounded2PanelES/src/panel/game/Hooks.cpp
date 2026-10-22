@@ -14,6 +14,7 @@
 #include <windows.h>
 
 #include <array>
+#include <exception>
 #include <mutex>
 
 namespace Hooks {
@@ -43,7 +44,14 @@ void HookedProcessEvent(SDK::UObject* object, SDK::UFunction* function, void* pa
         if (vtableHooks[i].vtable == vtable) { original = vtableHooks[i].original; break; }
     if (!insideTick) {
         insideTick = true;
-        Session::Tick();
+        // A C++ exception must never unwind into the game's frames (it would crash the game).
+        try {
+            Session::Tick();
+        } catch (const std::exception& e) {
+            Session::Fault("el hilo del juego", e.what());
+        } catch (...) {
+            Session::Fault("el hilo del juego", nullptr);
+        }
         insideTick = false;
     }
     if (original) original(object, function, params);
@@ -101,6 +109,15 @@ NativeFn PlacementThunk() { return &HookedPlacement<N>; }
 const std::array<NativeFn, kMaxNative> kCollisionThunks = {CollisionThunk<0>(), CollisionThunk<1>(), CollisionThunk<2>(), CollisionThunk<3>()};
 const std::array<NativeFn, kMaxNative> kPlacementThunks = {PlacementThunk<0>(), PlacementThunk<1>(), PlacementThunk<2>(), PlacementThunk<3>()};
 
+// UFunction::ExecFunction is not reflected; its SDK offset is only trusted if it really points
+// to code of the game executable (otherwise a later engine moved it and nothing is patched).
+bool InGameCode(const void* address) {
+    MEMORY_BASIC_INFORMATION info{};
+    if (!address || !VirtualQuery(address, &info, sizeof(info))) return false;
+    const bool executable = info.Protect & (PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY);
+    return info.State == MEM_COMMIT && info.Type == MEM_IMAGE && executable && info.AllocationBase == GetModuleHandleW(nullptr);
+}
+
 std::vector<SDK::UFunction*> NativeFunctions(const char* name, const char* owner) {
     std::vector<SDK::UFunction*> result;
     const int count = SDK::UObject::GObjects->Num();
@@ -110,7 +127,7 @@ std::vector<SDK::UFunction*> NativeFunctions(const char* name, const char* owner
         if (object->GetName() != name) continue;
         if (owner && (!object->Outer || object->Outer->GetName() != owner)) continue;
         auto* function = static_cast<SDK::UFunction*>(object);
-        if (!(function->FunctionFlags & 0x400) || !function->ExecFunction) continue;  // FUNC_Native
+        if (!(function->FunctionFlags & 0x400) || !InGameCode(reinterpret_cast<void*>(function->ExecFunction))) continue;  // FUNC_Native
         result.push_back(function);
     }
     return result;

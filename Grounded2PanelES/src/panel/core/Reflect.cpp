@@ -2,6 +2,10 @@
 #include "Reflect.hpp"
 
 #include "Log.hpp"
+#include "Memory.hpp"
+#include "Resolver.hpp"
+
+#include "SDK/Engine_classes.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -125,6 +129,52 @@ std::vector<SDK::UObject*> Instances(const SDK::UClass* type, size_t limit) {
     return result;
 }
 
+namespace {
+
+// UEnum::Names is not a reflected property, so its offset comes from the SDK dump (0x40) and
+// moved in some engine builds. Validate it on real data: every entry must decode as a name and
+// Unreal always ends the list with a "..._MAX" entry.
+bool ReadEnumAt(const SDK::UObject* object, int offset, std::vector<EnumEntry>& out) {
+    struct RawArray { const uint8_t* data; int32_t num; int32_t max; } raw{};
+    if (!Mem::Read(reinterpret_cast<uintptr_t>(object) + offset, raw)) return false;
+    if (!raw.data || raw.num <= 0 || raw.num > raw.max || raw.max > 0x10000) return false;
+    if (!Mem::IsReadable(raw.data, static_cast<size_t>(raw.num) * 16)) return false;
+    std::vector<EnumEntry> entries;
+    for (int32_t i = 0; i < raw.num; ++i) {
+        int32_t comparisonIndex;
+        uint32_t number;
+        int64_t value;
+        std::memcpy(&comparisonIndex, raw.data + i * 16, 4);
+        std::memcpy(&number, raw.data + i * 16 + 4, 4);
+        std::memcpy(&value, raw.data + i * 16 + 8, 8);
+        std::string name = Resolver::NameToString(comparisonIndex, number);
+        if (name.empty()) return false;
+        if (const auto colon = name.rfind("::"); colon != std::string::npos) name.erase(0, colon + 2);
+        entries.push_back({std::move(name), value});
+    }
+    if (entries.back().name.find("MAX") == std::string::npos) return false;
+    out = std::move(entries);
+    return true;
+}
+
+} // namespace
+
+std::vector<EnumEntry> EnumEntries(const SDK::UObject* enumObject) {
+    static int namesOffset = -1;
+    std::vector<EnumEntry> entries;
+    if (!enumObject || !Mem::IsReadable(enumObject, 0x80)) return entries;
+    if (namesOffset >= 0 && ReadEnumAt(enumObject, namesOffset, entries)) return entries;
+    for (const int offset : {0x40, 0x48, 0x50, 0x38, 0x58, 0x60, 0x30, 0x68}) {
+        if (offset == namesOffset || !ReadEnumAt(enumObject, offset, entries)) continue;
+        if (namesOffset != offset) {
+            Log::Info("Reflexión", "Lista de valores de UEnum en " + Log::Hex(offset) + (offset == 0x40 ? "" : " (SDK 0x40)"));
+            namesOffset = offset;
+        }
+        return entries;
+    }
+    return {};
+}
+
 int64_t EnumValue(std::string_view enumName, std::string_view entry, int64_t fallback) {
     auto* enumClass = SDK::UEnum::StaticClass();
     if (!enumClass) return fallback;
@@ -136,14 +186,10 @@ int64_t EnumValue(std::string_view enumName, std::string_view entry, int64_t fal
     for (int i = 0; i < count; ++i) {
         auto* object = SDK::UObject::GObjects->GetByIndex(i);
         if (!object || !object->Class || !object->IsA(enumClass) || object->GetName() != enumName) continue;
-        auto* type = static_cast<SDK::UEnum*>(object);
-        for (const auto& pair : type->Names) {
-            std::string name = pair.First.ToString();
-            auto colon = name.rfind("::");
-            if (colon != std::string::npos) name = name.substr(colon + 2);
-            if (name == entry) {
-                cache[key] = pair.Second;
-                return pair.Second;
+        for (const auto& e : EnumEntries(object)) {
+            if (e.name == entry) {
+                cache[key] = e.value;
+                return e.value;
             }
         }
         break;
@@ -151,6 +197,18 @@ int64_t EnumValue(std::string_view enumName, std::string_view entry, int64_t fal
     cache[key] = fallback;
     Log::Warn("Reflexión", "No se encontró " + key + "; se usa el valor conocido " + std::to_string(fallback));
     return fallback;
+}
+
+bool RowMapLooksValid(const SDK::UDataTable* table) {
+    // TMap = TSparseArray { TArray Data; FBitArray AllocationFlags (inline 0x10, secondary 8,
+    // NumBits, MaxBits); ... }. Elements are 0x18 bytes (FName, uint8*, hash links).
+    if (!table) return false;
+    const auto base = reinterpret_cast<uintptr_t>(&table->RowMap);
+    struct RawArray { const uint8_t* data; int32_t num; int32_t max; } data{};
+    int32_t numBits = 0, maxBits = 0;
+    if (!Mem::Read(base, data) || !Mem::Read(base + 0x28, numBits) || !Mem::Read(base + 0x2C, maxBits)) return false;
+    if (data.num < 0 || data.num > data.max || data.max > (1 << 20) || numBits != data.num || maxBits < numBits) return false;
+    return data.num == 0 || (data.data && Mem::IsReadable(data.data, static_cast<size_t>(data.num) * 0x18));
 }
 
 std::wstring ReadString(const void* fstring) {
@@ -467,55 +525,6 @@ bool Size(const char* sdkType, size_t size) {
 std::vector<std::string> Failures() {
     std::lock_guard lock(mutex);
     return failures;
-}
-
-int64_t EnumValue(std::string_view enumName, std::string_view entry, int64_t fallback) {
-    auto* enumClass = SDK::UEnum::StaticClass();
-    if (!enumClass) return fallback;
-    static std::unordered_map<std::string, int64_t> cache;
-    std::lock_guard lock(mutex);
-    std::string key = std::string(enumName) + "::" + std::string(entry);
-    if (auto it = cache.find(key); it != cache.end()) return it->second;
-    const int count = SDK::UObject::GObjects->Num();
-    for (int i = 0; i < count; ++i) {
-        auto* object = SDK::UObject::GObjects->GetByIndex(i);
-        if (!object || !object->Class || !object->IsA(enumClass) || object->GetName() != enumName) continue;
-        auto* type = static_cast<SDK::UEnum*>(object);
-        for (const auto& pair : type->Names) {
-            std::string name = pair.First.ToString();
-            auto colon = name.rfind("::");
-            if (colon != std::string::npos) name = name.substr(colon + 2);
-            if (name == entry) {
-                cache[key] = pair.Second;
-                return pair.Second;
-            }
-        }
-        break;
-    }
-    cache[key] = fallback;
-    Log::Warn("Reflexión", "No se encontró " + key + "; se usa el valor conocido " + std::to_string(fallback));
-    return fallback;
-}
-
-std::wstring ReadString(const void* fstring) {
-    if (!fstring) return {};
-    const auto* text = static_cast<const SDK::FString*>(fstring);
-    const wchar_t* data = text->CStr();
-    if (!data || text->Num() <= 0 || text->Num() > 65536) return {};
-    std::wstring out(data, static_cast<size_t>(text->Num()));
-    while (!out.empty() && out.back() == L'\0') out.pop_back();
-    return out;
-}
-
-SDK::UObject* FindObjectNamed(std::string_view name, const SDK::UClass* type) {
-    const int count = SDK::UObject::GObjects->Num();
-    for (int i = 0; i < count; ++i) {
-        auto* object = SDK::UObject::GObjects->GetByIndex(i);
-        if (!object || !object->Class || object->IsDefaultObject()) continue;
-        if (type && !object->IsA(type)) continue;
-        if (object->GetName() == name) return object;
-    }
-    return nullptr;
 }
 
 void Reset() {

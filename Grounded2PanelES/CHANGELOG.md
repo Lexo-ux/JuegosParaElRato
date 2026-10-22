@@ -1,5 +1,13 @@
 # Cambios
 
+## 0.3.5 — Sin cierres del juego (Unreal Engine 5.7)
+
+- Grounded 2 0.6.0.3 usa Unreal Engine 5.7.4 (antes 5.6). Con 0.3.4 el juego se cerraba al iniciar el panel: la lista de valores de los enum (`UEnum::Names`, que no es una propiedad reflejada) cambió de posición, y al leerla en la posición antigua se lanzaba una excepción de C++ que llegaba hasta el juego (código `0x20474343`).
+- La lista de valores de los enum se localiza ahora comprobando los datos (cada entrada debe ser un nombre válido y la última debe ser `..._MAX`).
+- Ninguna excepción del panel puede llegar ya al juego: se capturan en el gancho del hilo del juego, en el arranque y en la ventana. Si ocurre una, se anota en el registro y el panel se detiene; el juego sigue.
+- Antes de usar las tablas de datos y las funciones nativas del juego se comprueba que su estructura interna es la esperada.
+- Eliminadas unas copias duplicadas y sin uso de tres funciones en `Reflect.cpp`.
+
 ## 0.3.4 — Campos del motor en su posición real
 
 - Con 0.3.3 el panel ya localizaba objetos, nombres y `ProcessEvent` en Grounded 2 0.6.0.3, pero se ponía en pausa: en esta versión las clases de Unreal crecieron (`AActor` +0x10, `UEngine` +0x78, `UMovementComponent` +8) y los campos del motor ya no estaban donde dice el SDK.

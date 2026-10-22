@@ -306,6 +306,20 @@ void SetStartupMessage(const std::wstring& message, bool resolved, bool block) {
 
 uint64_t LastTickMs() { return lastTick.load(std::memory_order_relaxed); }
 
+void Fault(const char* where, const char* what) noexcept {
+    try {
+        static std::atomic<bool> reported{false};
+        if (reported.exchange(true)) return;
+        Log::Error("Error", std::string("Excepción interna en ") + where + ": " + (what ? what : "desconocida") +
+                                ". El panel se detiene para proteger la partida.");
+        SetStartupMessage(L"El panel encontró un error interno y se ha detenido para proteger tu partida (el juego sigue "
+                          L"funcionando). Envía el registro (Ajustes › Abrir registro).",
+                          false, true);
+    } catch (...) {
+        blocked = true;
+    }
+}
+
 void MarkIdle() {
     // Called from the start-up thread when the game thread stopped ticking us (main menu).
     std::lock_guard lock(mutex);

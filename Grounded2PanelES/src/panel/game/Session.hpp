@@ -17,4 +17,8 @@ void SetStartupMessage(const std::wstring& message, bool resolved, bool blocked 
 uint64_t LastTickMs();
 void MarkIdle();   // no tick for a while (main menu, loading): publish "waiting"
 
+// A C++ exception escaped panel code (caught at the hook or thread boundary): log it and
+// stop touching the game for the rest of the session. Never lets it reach the game.
+void Fault(const char* where, const char* what) noexcept;
+
 } // namespace Session

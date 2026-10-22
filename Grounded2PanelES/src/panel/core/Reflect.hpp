@@ -17,6 +17,8 @@
 #include <utility>
 #include <vector>
 
+namespace SDK { class UDataTable; }
+
 namespace Reflect {
 
 enum class Kind : uint8_t { Any, Class, ScriptStruct };
@@ -73,6 +75,13 @@ inline T* Value(SDK::UObject* object, std::string_view name, std::string_view ty
 inline BoolField ObjBool(SDK::UObject* object, std::string_view name) {
     return object && object->Class ? FindBool(object->Class, name) : BoolField{};
 }
+
+// Entries of a UEnum object (names without the "EType::" prefix). Empty if unreadable.
+struct EnumEntry { std::string name; int64_t value; };
+std::vector<EnumEntry> EnumEntries(const SDK::UObject* enumObject);
+
+// False when a data table's row map does not look like a TMap (engine layout changed).
+bool RowMapLooksValid(const SDK::UDataTable* table);
 
 // Value of an enum entry by name ("EPerkTarget", "Buggy"); `fallback` if not found.
 int64_t EnumValue(std::string_view enumName, std::string_view entry, int64_t fallback);

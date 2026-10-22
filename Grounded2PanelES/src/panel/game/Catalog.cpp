@@ -139,7 +139,7 @@ void IndexMutations() {
         auto* object = SDK::UObject::GObjects->GetByIndex(i);
         if (!object || !object->Class || object->IsDefaultObject() || !object->IsA(tableClass)) continue;
         auto* table = static_cast<SDK::UDataTable*>(object);
-        if (!table->RowStruct || !StructIs(table->RowStruct, "PerkData")) continue;
+        if (!table->RowStruct || !StructIs(table->RowStruct, "PerkData") || !Reflect::RowMapLooksValid(table)) continue;
         for (const auto& row : table->RowMap) {
             if (!row.Value()) continue;
             mutationRows.try_emplace(row.Key().ToString(), Row{table, row.Key(), row.Value()});
@@ -160,7 +160,7 @@ void Reset() {
 bool LoadItems(Game::Ctx&, std::shared_ptr<const std::vector<Bridge::Item>>& out, std::wstring& message) {
     itemRows.clear();
     auto* table = static_cast<SDK::UDataTable*>(Reflect::FindObjectNamed("Table_AllItems", SDK::UDataTable::StaticClass()));
-    if (!table || !table->RowStruct || !StructIs(table->RowStruct, "BaseItemData")) {
+    if (!table || !table->RowStruct || !StructIs(table->RowStruct, "BaseItemData") || !Reflect::RowMapLooksValid(table)) {
         message = L"No se encontró el catálogo de objetos de esta versión.";
         return false;
     }
@@ -210,7 +210,7 @@ bool FindItem(const std::string& id, Row& row) {
 }
 
 bool CanAddToInventory(SDK::UDataTable* table, SDK::FName rowName) {
-    if (!table || !table->RowStruct) return false;
+    if (!table || !table->RowStruct || !Reflect::RowMapLooksValid(table)) return false;
     auto key = std::make_pair(reinterpret_cast<uintptr_t>(table), NameKey(rowName));
     if (auto it = inventoryCache.find(key); it != inventoryCache.end()) return it->second;
     bool result = false;

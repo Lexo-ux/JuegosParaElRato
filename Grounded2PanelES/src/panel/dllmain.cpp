@@ -81,7 +81,7 @@ SDK::APlayerController* LocalController() {
     return LiveObject(controller) ? controller : nullptr;
 }
 
-DWORD WINAPI Startup(LPVOID) {
+DWORD StartupImpl() {
     Log::Init(Paths::DataDir());
     wchar_t exe[MAX_PATH] = {};
     GetModuleFileNameW(nullptr, exe, MAX_PATH);
@@ -161,6 +161,17 @@ DWORD WINAPI Startup(LPVOID) {
         }
         Sleep(1000);
     }
+}
+
+DWORD WINAPI Startup(LPVOID) {
+    try {
+        return StartupImpl();
+    } catch (const std::exception& e) {
+        Session::Fault("el arranque", e.what());
+    } catch (...) {
+        Session::Fault("el arranque", nullptr);
+    }
+    return 1;
 }
 
 } // namespace
