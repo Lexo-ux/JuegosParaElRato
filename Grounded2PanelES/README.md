@@ -1,4 +1,4 @@
-# Grounded 2 · Panel en español 0.3.2
+# Grounded 2 · Panel en español 0.3.3
 
 Panel de trucos y utilidades **en español** para **Grounded 2 (Steam)**, actualizado para la versión **0.6.0 «Rot and Ruin»**, con interfaz nueva, iniciador propio y paquete listo para **Vortex**.
 Derivado de [Grounded2Minimal](https://github.com/x0reaxeax/Grounded2Minimal) (x0reaxeax) y de Grounded2PanelES 0.2.0. Licencia GPL-3.0-or-later.
@@ -17,7 +17,7 @@ Derivado de [Grounded2Minimal](https://github.com/x0reaxeax/Grounded2Minimal) (x
 
 ## Descarga
 
-El paquete para Vortex está en [`releases/Grounded2PanelES-Steam-0.3.2.zip`](releases/Grounded2PanelES-Steam-0.3.2.zip). Instrucciones completas de instalación y uso en [`LEEME.txt`](LEEME.txt).
+El paquete para Vortex está en [`releases/Grounded2PanelES-Steam-0.3.3.zip`](releases/Grounded2PanelES-Steam-0.3.3.zip). Instrucciones completas de instalación y uso en [`LEEME.txt`](LEEME.txt).
 
 Resumen:
 1. En Vortex, desactiva y elimina la 0.2.0 si la tenías.
@@ -51,7 +51,7 @@ Linux, WSL o MSYS2 con MinGW-w64:
 
 ```sh
 sudo apt-get install g++-mingw-w64-x86-64-posix cmake python3 unzip zip curl
-./build.sh            # descarga y adapta el SDK, compila, pasa las pruebas y crea dist/Grounded2PanelES-Steam-0.3.2.zip
+./build.sh            # descarga y adapta el SDK, compila, pasa las pruebas y crea dist/Grounded2PanelES-Steam-0.3.3.zip
 ```
 
 - El SDK de Dumper-7 lo descarga de la publicación `sdk` de Grounded2Minimal (no se incluye aquí). `scripts/patch_sdk.py` lo adapta a GCC: offsets globales modificables en ejecución, relleno final de clases para reproducir el diseño de MSVC (verificado por las propias aserciones del SDK) y arreglos menores.

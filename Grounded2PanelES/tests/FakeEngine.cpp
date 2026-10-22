@@ -80,12 +80,14 @@ int wmain(int argc, wchar_t** argv) {
     vtable[0x4C] = const_cast<unsigned char*>(kFakeProcessEvent);
 
     bool chunked = false;
+    bool pointerAt8 = false;   // Grounded 2 0.6.0.3: { flags/refcount, UObject*, ... } and base at +8
     const wchar_t* dll = L"Grounded2PanelES.dll";
     for (int i = 1; i < argc; ++i) {
         if (std::wstring(argv[i]) == L"--bloques") chunked = true;
+        else if (std::wstring(argv[i]) == L"--puntero8") pointerAt8 = true;
         else dll = argv[i];
     }
-    std::printf("Formato de la tabla de objetos: %s\n", chunked ? "por bloques" : "plana");
+    std::printf("Formato de la tabla de objetos: %s%s\n", chunked ? "por bloques" : "plana", pointerAt8 ? ", puntero en +8" : "");
 
     const int count = 70000;   // more than one chunk
     objectArray.objects = static_cast<FakeItem*>(_aligned_malloc(sizeof(FakeItem) * 0x20000, 64));
@@ -98,6 +100,19 @@ int wmain(int argc, wchar_t** argv) {
         object->klass = classObject;
         object->name = {static_cast<int32_t>(names[i % 4]), 0};
         objectArray.objects[i].object = object;
+    }
+    if (pointerAt8) {
+        // Same objects, moved to +8 within each item behind a flags word; the array base itself
+        // points 8 bytes into the allocation, as seen in the real game.
+        auto* raw = static_cast<uint8_t*>(_aligned_malloc(sizeof(FakeItem) * 0x20000 + 16, 64));
+        std::memset(raw, 0, sizeof(FakeItem) * 0x20000 + 16);
+        for (int i = 0; i < count; ++i) {
+            uint8_t* item = raw + 8 + static_cast<size_t>(i) * sizeof(FakeItem);
+            const uint64_t flags = 0x4000000000000000ull;
+            std::memcpy(item, &flags, 8);
+            std::memcpy(item + 8, &objectArray.objects[i].object, 8);
+        }
+        objectArray.objects = reinterpret_cast<FakeItem*>(raw + 8);
     }
     if (chunked) {
         chunkedArray.chunks = new FakeItem*[2]{objectArray.objects, objectArray.objects + 0x10000};

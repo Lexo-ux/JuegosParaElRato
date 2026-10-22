@@ -161,6 +161,7 @@ class TUObjectArray final
 public:
 	static inline bool  Chunked = false;
 	static inline int32 ItemSize = 0x18;
+	static inline int32 ObjectOffset = 0x00;   // offset of the UObject* inside FUObjectItem
 	static inline int32 NumOffset = 0x0C;
 	static inline int32 ElementsPerChunk = 0x10000;
 
@@ -186,9 +187,9 @@ public:
 			const uint8* Chunk = reinterpret_cast<uint8* const*>(Base)[Index / ElementsPerChunk];
 			if (!Chunk)
 				return nullptr;
-			return *reinterpret_cast<class UObject* const*>(Chunk + static_cast<size_t>(Index % ElementsPerChunk) * ItemSize);
+			return *reinterpret_cast<class UObject* const*>(Chunk + static_cast<size_t>(Index % ElementsPerChunk) * ItemSize + ObjectOffset);
 		}
-		return *reinterpret_cast<class UObject* const*>(Base + static_cast<size_t>(Index) * ItemSize);
+		return *reinterpret_cast<class UObject* const*>(Base + static_cast<size_t>(Index) * ItemSize + ObjectOffset);
 	}
 };"""
 

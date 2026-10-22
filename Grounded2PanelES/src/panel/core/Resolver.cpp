@@ -67,11 +67,15 @@ std::vector<const Mem::Section*> DataSections() {
 // (chunks of 64K items). The item size also changed between engine builds, so both the layout
 // and the item stride are detected from the data instead of being taken from the SDK.
 constexpr int kStrides[] = {0x18, 0x10, 0x20, 0x28};
+// Where the UObject* sits inside an item: 0 up to 0.5.1; Grounded 2 0.6.0.3 puts a 64-bit
+// flags/refcount word first and the pointer at +8.
+constexpr int kObjectOffsets[] = {0x00, 0x08, 0x10};
 constexpr int kChunkItems = 0x10000;
 
 struct ArrayLayout {
     bool chunked = false;
     int stride = 0x18;
+    int objectOffset = 0;
 };
 
 // Best rejected candidate, for diagnostics.
@@ -79,6 +83,7 @@ struct Probe {
     uintptr_t address = 0;
     bool chunked = false;
     int stride = 0;
+    int objectOffset = 0;
     int valid = -1;   // consecutive valid objects found from index 0
     std::string why;
 };
@@ -97,10 +102,10 @@ std::string Hex(const void* address, size_t length) {
 }
 
 // Number of consecutive valid UObjects (max 64) starting at item 0, and why it stopped.
-int CountValidObjects(uintptr_t items, int stride, std::string& why) {
+int CountValidObjects(uintptr_t items, int stride, int objectOffset, std::string& why) {
     for (int i = 0; i < 64; ++i) {
         uintptr_t object;
-        std::memcpy(&object, reinterpret_cast<const void*>(items + static_cast<size_t>(i) * stride), 8);
+        std::memcpy(&object, reinterpret_cast<const void*>(items + static_cast<size_t>(i) * stride + objectOffset), 8);
         if (!object || (object & 7) || !Mem::IsReadable(reinterpret_cast<const void*>(object), 0x30)) {
             why = "objeto " + std::to_string(i) + " nulo o ilegible";
             return i;
@@ -127,9 +132,9 @@ int CountValidObjects(uintptr_t items, int stride, std::string& why) {
     return 64;
 }
 
-void Remember(Probe& best, uintptr_t address, bool chunked, int stride, int valid, const std::string& why) {
+void Remember(Probe& best, uintptr_t address, bool chunked, int stride, int objectOffset, int valid, const std::string& why) {
     if (valid <= best.valid) return;
-    best = {address, chunked, stride, valid, why};
+    best = {address, chunked, stride, objectOffset, valid, why};
 }
 
 bool ValidateObjectArray(uintptr_t candidate, Mem::RegionCache& cache, int& countOut, ArrayLayout& layoutOut, Probe& best) {
@@ -157,18 +162,21 @@ bool ValidateObjectArray(uintptr_t candidate, Mem::RegionCache& cache, int& coun
         ++stats.plausibleArrays;
         if (!Mem::IsReadable(reinterpret_cast<const void*>(items), 0x28 * 64)) {
             ++stats.unreadableItems;
-            Remember(best, candidate, chunked, 0, 0, "elementos ilegibles");
+            Remember(best, candidate, chunked, 0, 0, 0, "elementos ilegibles");
             continue;
         }
         for (const int stride : kStrides) {
-            std::string why;
-            const int valid = CountValidObjects(items, stride, why);
-            if (valid == 64) {
-                countOut = numElements;
-                layoutOut = {chunked, stride};
-                return true;
+            for (const int objectOffset : kObjectOffsets) {
+                if (objectOffset + 8 > stride) continue;
+                std::string why;
+                const int valid = CountValidObjects(items, stride, objectOffset, why);
+                if (valid == 64) {
+                    countOut = numElements;
+                    layoutOut = {chunked, stride, objectOffset};
+                    return true;
+                }
+                Remember(best, candidate, chunked, stride, objectOffset, valid, why);
             }
-            Remember(best, candidate, chunked, stride, valid, why);
         }
         ++stats.badObjects;
     }
@@ -215,19 +223,21 @@ std::vector<uintptr_t> SignatureCandidates() {
 void UseObjectArray(uintptr_t address, const ArrayLayout& layout, int count, Report& report, const std::string& how) {
     SDK::TUObjectArray::Chunked = layout.chunked;
     SDK::TUObjectArray::ItemSize = layout.stride;
+    SDK::TUObjectArray::ObjectOffset = layout.objectOffset;
     SDK::TUObjectArray::NumOffset = layout.chunked ? 0x14 : 0x0C;
     SDK::UObject::GObjects.InitManually(reinterpret_cast<void*>(address));
     report.objectsRva = address - game.base;
     report.objectCount = count;
     Log::Info("Resolver", "GObjects " + how + " en " + Log::Hex(report.objectsRva) + " (" +
-                          (layout.chunked ? "por bloques" : "plana") + ", elemento " + Log::Hex(layout.stride) + ", " +
+                          (layout.chunked ? "por bloques" : "plana") + ", elemento " + Log::Hex(layout.stride) +
+                          ", puntero en +" + Log::Hex(layout.objectOffset) + ", " +
                           std::to_string(count) + " objetos)");
 }
 
 std::string Describe(const Probe& probe) {
     if (probe.valid < 0) return "ninguna";
     return Log::Hex(probe.address - game.base) + " " + (probe.chunked ? "bloques" : "plana") +
-           (probe.stride ? ", elemento " + Log::Hex(probe.stride) : std::string()) + ", " + std::to_string(probe.valid) +
+           (probe.stride ? ", elemento " + Log::Hex(probe.stride) + " +" + Log::Hex(probe.objectOffset) : std::string()) + ", " + std::to_string(probe.valid) +
            "/64 objetos válidos" + (probe.why.empty() ? std::string() : ", " + probe.why);
 }
 
@@ -274,10 +284,12 @@ bool FindObjects(Report& report) {
         std::memcpy(&first, header, 8);
         uintptr_t items = first;
         if (probe->chunked) Mem::Read(first, items);
-        report.detail += "\n    elementos: " + Hex(reinterpret_cast<const void*>(items), 0x30);
-        uintptr_t object0 = 0;
-        if (Mem::Read(items, object0) && object0)
-            report.detail += "\n    objeto 0: " + Hex(reinterpret_cast<const void*>(object0), 0x30);
+        report.detail += "\n    elementos: " + Hex(reinterpret_cast<const void*>(items), 0x60);
+        for (const int offset : kObjectOffsets) {
+            uintptr_t object0 = 0;
+            if (Mem::Read(items + offset, object0) && object0 && Mem::IsReadable(reinterpret_cast<const void*>(object0), 0x30))
+                report.detail += "\n    objeto 0 (+" + Log::Hex(offset) + "): " + Hex(reinterpret_cast<const void*>(object0), 0x40);
+        }
     }
     report.problem = "tabla de objetos no encontrada (" + std::to_string(stats.plausibleArrays) + " candidatas; mejor: " +
                      Describe(signatureBest.valid >= best.valid ? signatureBest : best) + ")";

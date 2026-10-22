@@ -1,5 +1,10 @@
 # Cambios
 
+## 0.3.3 — Formato de elemento de Grounded 2 0.6.0.3
+
+- El volcado del registro de 0.3.2 mostró el cambio: en 0.6.0.3 cada elemento de la tabla de objetos empieza con una palabra de indicadores (`RootSet`…) y el puntero al objeto está 8 bytes después. El panel detecta ahora la posición del puntero dentro del elemento (+0, +8 o +0x10).
+- El motor simulado prueba las cuatro combinaciones (plana o por bloques, puntero en +0 o +8).
+
 ## 0.3.2 — Tabla de objetos de Grounded 2 0.6.0.3
 
 - Con Grounded 2 0.6.0.3 el panel se quedaba en «Buscando las estructuras internas del juego» porque no reconocía la tabla de objetos; esta versión amplía la búsqueda (pendiente de confirmar en el juego real).
