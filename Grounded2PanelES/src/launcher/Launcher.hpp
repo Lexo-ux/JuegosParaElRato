@@ -26,6 +26,9 @@ struct Game {
     bool panelLoaded = false;
     bool otherModLoaded = false;   // Grounded2Minimal already injected
     bool windowReady = false;      // the Unreal window exists
+    bool elevated = false;         // the game runs with more privileges than the launcher
+    std::wstring windowTitle;
+    std::vector<std::wstring> candidates;   // every process with "grounded" in its name (diagnostics)
 };
 Game Find();
 // Loads `dll` into the game. Returns an empty string on success or a Spanish error message.

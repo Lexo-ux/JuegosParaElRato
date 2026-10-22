@@ -1,5 +1,12 @@
 # Cambios
 
+## 0.3.1 — Detección del juego
+
+- El iniciador detecta el juego aunque cambie el nombre del ejecutable (por proceso y por la ventana de Unreal) y avisa si el juego se ejecuta como administrador y el iniciador no.
+- Nuevo botón «Copiar diagnóstico» en el iniciador: Windows, proceso, ventana, permisos, instalación y el final del registro del panel, listo para pegar.
+- El panel explica en pantalla y en el registro por qué no termina de localizar el juego (tabla de objetos, de nombres, controlador o estado del jugador).
+- Si el controlador del jugador no genera actividad, el panel se engancha también a la HUD para no quedarse en «Esperando partida».
+
 ## 0.3.0 — Actualización para Grounded 2 0.6.0 («Rot and Ruin»)
 
 **Compatibilidad con actualizaciones**

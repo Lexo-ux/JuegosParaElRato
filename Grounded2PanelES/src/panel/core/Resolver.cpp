@@ -22,6 +22,13 @@ constexpr size_t kObjectNameOffset = offsetof(SDK::UObject, Name);              
 constexpr size_t kFunctionFlagsOffset = offsetof(SDK::UFunction, FunctionFlags); // 0xB0
 
 Mem::Module game;
+
+// Diagnostics of the last scan (why candidates were rejected).
+struct ScanStats {
+    int plausibleArrays = 0, unreadableItems = 0, badObjects = 0;
+    std::string firstBadObject;
+    int noneHits = 0, badBlocks = 0, badDecode = 0;
+} stats;
 NamePool::View names;
 std::atomic<bool> namesReady{false};
 
@@ -64,17 +71,31 @@ bool ValidateObjectArray(uintptr_t candidate, Mem::RegionCache& cache, int& coun
     std::memcpy(&numElements, reinterpret_cast<const void*>(candidate + 12), 4);
     if (!objects || (objects & 7) || game.Contains(objects)) return false;
     if (numElements < 0x1000 || numElements > maxElements || maxElements > 0x4000000 || maxElements < 0x10000) return false;
-    if (!cache.Readable(objects, kObjectItemSize * 64)) return false;
+    ++stats.plausibleArrays;
+    if (!cache.Readable(objects, kObjectItemSize * 64)) {
+        ++stats.unreadableItems;
+        return false;
+    }
     for (int i = 0; i < 64; ++i) {
         uintptr_t object;
         std::memcpy(&object, reinterpret_cast<const void*>(objects + i * kObjectItemSize), 8);
-        if (!object || (object & 7) || !Mem::IsReadable(reinterpret_cast<const void*>(object), 0x28)) return false;
+        if (!object || (object & 7) || !Mem::IsReadable(reinterpret_cast<const void*>(object), 0x28)) {
+            if (i > 0 && stats.firstBadObject.empty()) stats.firstBadObject = "objeto " + std::to_string(i) + " ilegible";
+            ++stats.badObjects;
+            return false;
+        }
         uintptr_t vtable, klass;
         int32_t index;
         std::memcpy(&vtable, reinterpret_cast<const void*>(object), 8);
         std::memcpy(&index, reinterpret_cast<const void*>(object + kObjectIndexOffset), 4);
         std::memcpy(&klass, reinterpret_cast<const void*>(object + kObjectClassOffset), 8);
-        if (!game.Contains(vtable) || index != i || !klass) return false;
+        if (!game.Contains(vtable) || index != i || !klass) {
+            if (i > 0 && stats.firstBadObject.empty())
+                stats.firstBadObject = "objeto " + std::to_string(i) + ": vtable " + (game.Contains(vtable) ? "ok" : "fuera") +
+                                       ", índice " + std::to_string(index);
+            ++stats.badObjects;
+            return false;
+        }
         if (!Mem::IsReadable(reinterpret_cast<const void*>(klass), 0x30)) return false;
     }
     countOut = numElements;
@@ -153,13 +174,18 @@ bool FindNames(Report& report) {
             uint32_t stride;
             NamePool::HeaderLayout layout;
             if (!NamePool::LooksLikeFirstBlock(reinterpret_cast<const uint8_t*>(value), 64, stride, layout)) continue;
-            if (!BlocksArrayLooksValid(p, cache)) continue;
+            ++stats.noneHits;
+            if (!BlocksArrayLooksValid(p, cache)) {
+                ++stats.badBlocks;
+                continue;
+            }
             names.blocks = reinterpret_cast<const uint8_t* const*>(p);
             names.currentBlock = reinterpret_cast<const uint32_t*>(p - 8);
             names.stride = stride;
             names.layout = layout;
             names.blockBytes = stride << 16;
             if (!NamesDecodeObjects()) {
+                ++stats.badDecode;
                 names = {};
                 continue;
             }
@@ -311,7 +337,19 @@ bool Run(Report& report) {
     if (!report.objects) report.objects = FindObjects(report);
     if (report.objects && !report.names) report.names = FindNames(report);
     if (report.objects && report.names && !report.processEvent) FindProcessEvent(report);
-    return report.objects && report.names && report.processEvent;
+    const bool ok = report.objects && report.names && report.processEvent;
+    report.problem.clear();
+    if (!report.objects) {
+        report.problem = "tabla de objetos no encontrada (" + std::to_string(stats.plausibleArrays) + " candidatas, " +
+                         std::to_string(stats.badObjects) + " con objetos inválidos" +
+                         (stats.firstBadObject.empty() ? std::string() : "; " + stats.firstBadObject) + ")";
+    } else if (!report.names) {
+        report.problem = "tabla de nombres no encontrada (" + std::to_string(stats.noneHits) + " coincidencias, " +
+                         std::to_string(stats.badBlocks) + " bloques rechazados, " + std::to_string(stats.badDecode) +
+                         " sin decodificar)";
+    }
+    stats = {};
+    return ok;
 }
 
 std::string NameToString(int32_t comparisonIndex, uint32_t number) {

@@ -1,4 +1,4 @@
-GROUNDED 2 · PANEL EN ESPAÑOL 0.3.0 (Steam, Windows de 64 bits)
+GROUNDED 2 · PANEL EN ESPAÑOL 0.3.1 (Steam, Windows de 64 bits)
 =================================================================
 
 Panel de trucos y utilidades en español para Grounded 2, con interfaz nueva,
@@ -24,7 +24,7 @@ IMPORTANTE
 INSTALACIÓN CON VORTEX
 ----------------------
 1. Si tenías la versión 0.2.0, desactívala y elimínala en Vortex (pestaña Mods).
-2. Arrastra Grounded2PanelES-Steam-0.3.0.zip a la pestaña Mods de Vortex,
+2. Arrastra Grounded2PanelES-Steam-0.3.1.zip a la pestaña Mods de Vortex,
    pulsa Instalar y después Activar. Vortex lo despliega en:
      <carpeta del juego>\Augusta\Binaries\Win64\Grounded2PanelES\
 3. (Recomendado) Añade el iniciador como herramienta en Vortex:
@@ -117,6 +117,11 @@ PROBLEMAS FRECUENTES
   versión nueva del panel. No se ha modificado nada.
 - No aparece la ventana: pulsa F8 con el juego en primer plano o vuelve a
   ejecutar el iniciador («Mostrar el panel»).
+- El iniciador no detecta el juego o el panel se queda «Buscando…» o
+  «Esperando partida»: abre el juego normalmente (no como administrador, o
+  abre los dos como administrador), entra en una partida como anfitrión y, si
+  sigue igual, pulsa «Copiar diagnóstico» en el iniciador y pega el texto al
+  pedir ayuda. Incluye el final del registro del panel.
 
 
 CRÉDITOS

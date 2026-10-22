@@ -95,17 +95,29 @@ void Message(const std::wstring& text, Bridge::Tone tone) {
     ++state.messageId;
 }
 
+std::string lastResolveProblem;
+bool Fail(const char* why) {
+    if (lastResolveProblem != why) {
+        Log::Info("Sesión", std::string("Sin partida activa: ") + why);
+        lastResolveProblem = why;
+    }
+    return false;
+}
+
 bool Resolve(Game::Ctx& ctx) {
     auto& classes = Game::GetClasses();
     ctx.world = SDK::UWorld::GetWorld();
-    if (!ctx.world) return false;
+    if (!ctx.world) return Fail("no hay mundo cargado");
     auto* instance = ctx.world->OwningGameInstance;
-    if (!instance || instance->LocalPlayers.Num() < 1) return false;
+    if (!instance || instance->LocalPlayers.Num() < 1) return Fail("sin jugador local");
     auto* local = instance->LocalPlayers[0];
     ctx.controller = local ? local->PlayerController : nullptr;
-    if (!ctx.controller || !classes.survivalPlayerController || !ctx.controller->IsA(classes.survivalPlayerController)) return false;
+    if (!ctx.controller || !classes.survivalPlayerController || !ctx.controller->IsA(classes.survivalPlayerController))
+        return Fail("el controlador local no es de partida");
     ctx.playerState = ctx.controller->PlayerState;
-    if (!ctx.playerState || !classes.survivalPlayerState || !ctx.playerState->IsA(classes.survivalPlayerState)) return false;
+    if (!ctx.playerState || !classes.survivalPlayerState || !ctx.playerState->IsA(classes.survivalPlayerState))
+        return Fail("el estado del jugador no es de partida (SurvivalPlayerState)");
+    lastResolveProblem.clear();
     ctx.host = ctx.world->AuthorityGameMode != nullptr;
     ctx.gameState = ctx.world->GameState;
     ctx.modes = Reflect::Obj(ctx.gameState, "SurvivalModeManagerComponent");

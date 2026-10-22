@@ -75,6 +75,10 @@ bool LoadPanel(const Inject::Game& game) {
         Inject::ShowPanel();
         return true;
     }
+    if (game.elevated) {
+        Note(Theme::ToastKind::Error, L"Grounded 2 se está ejecutando como administrador. Cierra el juego y ábrelo normal, o ejecuta también IniciarPanel.exe como administrador.");
+        return false;
+    }
     if (game.otherModLoaded) {
         Note(Theme::ToastKind::Warning, L"Grounded2Minimal ya está cargado en el juego. Cierra el juego y ábrelo de nuevo para usar este panel.");
         return false;
@@ -148,6 +152,38 @@ void Poller() {
         }
         Sleep(1000);
     }
+}
+
+// Everything needed to diagnose "the game is not detected", ready to paste.
+std::string Diagnostics(const Inject::Game& game, const Steam::Install& install) {
+    std::string out = "Grounded2PanelES " G2P_VERSION " - diagnóstico\n";
+    OSVERSIONINFOW os{};
+    os.dwOSVersionInfoSize = sizeof(os);
+    using RtlGetVersionFn = LONG(WINAPI*)(OSVERSIONINFOW*);
+    if (auto fn = reinterpret_cast<RtlGetVersionFn>(reinterpret_cast<void*>(GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "RtlGetVersion")))) fn(&os);
+    out += "Windows " + std::to_string(os.dwMajorVersion) + "." + std::to_string(os.dwMinorVersion) + " build " + std::to_string(os.dwBuildNumber) + "\n";
+    out += "Juego: " + (game.pid ? Paths::Utf8(game.exeName) + " PID " + std::to_string(game.pid) : std::string("no detectado")) + "\n";
+    out += "Ventana: " + std::string(game.windowReady ? "sí" : "no") + " «" + Paths::Utf8(game.windowTitle) + "»\n";
+    out += "Panel cargado: " + std::string(game.panelLoaded ? "sí" : "no") + ", administrador: " + (game.elevated ? "sí" : "no") + "\n";
+    out += "Procesos «grounded»:";
+    for (const auto& c : game.candidates) out += " " + Paths::Utf8(c) + ";";
+    out += "\nInstalación: " + Paths::Utf8(install.gameDir) + "\nEjecutable: " + Paths::Utf8(install.exe) + " " + Paths::Utf8(install.version) + "\n";
+    out += "DLL: " + Paths::Utf8(dllPath) + (GetFileAttributesW(dllPath.c_str()) == INVALID_FILE_ATTRIBUTES ? " (NO EXISTE)" : "") + "\n";
+    {
+        std::lock_guard lock(shared.mutex);
+        out += "--- iniciador ---\n";
+        for (const auto& [kind, text] : shared.log) out += text + "\n";
+    }
+    out += "--- registro.txt (últimas líneas) ---\n";
+    std::ifstream file(std::filesystem::path(Paths::DataDir() + L"\\registro.txt"), std::ios::binary);
+    std::deque<std::string> lines;
+    std::string line;
+    while (std::getline(file, line)) {
+        lines.push_back(line);
+        if (lines.size() > 80) lines.pop_front();
+    }
+    for (const auto& l : lines) out += l + "\n";
+    return out;
 }
 
 void Header(DxWindow& window, float height) {
@@ -230,6 +266,13 @@ void Frame(DxWindow& window) {
     status(Icon::FolderOpen, C::Blue, "Instalación",
            install.gameDir.empty() ? "No encontrada (no es necesaria para cargar el panel)" : Paths::Utf8(install.gameDir), C::TextDim);
     if (!install.version.empty()) status(Icon::Info, C::Blue, "Versión del ejecutable", Paths::Utf8(install.version), C::TextDim);
+    if (game.elevated)
+        status(Icon::Warning, C::Red, "Permisos", "El juego corre como administrador: ejecuta también el iniciador como administrador", C::Red);
+    if (!game.pid && !game.candidates.empty()) {
+        std::string list;
+        for (const auto& c : game.candidates) list += (list.empty() ? "" : ", ") + Paths::Utf8(c);
+        status(Icon::Search, C::Amber, "Procesos encontrados", list + " (esperando el ejecutable del juego)", C::Amber);
+    }
     Theme::EndCard();
 
     // ---- main action
@@ -277,6 +320,11 @@ void Frame(DxWindow& window) {
         const std::wstring folder = Backup::Folder();
         CreateDirectoryW(folder.c_str(), nullptr);
         ShellExecuteW(nullptr, L"open", folder.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+    }
+    ImGui::SameLine(0, 10);
+    if (Theme::GhostButton((std::string(Icon::Copy) + "  Copiar diagnóstico").c_str())) {
+        ImGui::SetClipboardText(Diagnostics(game, install).c_str());
+        Theme::PushToast("Diagnóstico copiado. Pégalo en el chat para que lo revisen.", Theme::ToastKind::Success);
     }
     ImGui::SameLine(0, 10);
     if (Theme::GhostButton((std::string(Icon::FileLines) + "  Registro del panel").c_str())) {

@@ -23,6 +23,7 @@ struct Report {
     int objectCount = 0;
     std::string gameVersion;   // e.g. "0.6.0.1", empty if not found
     std::string engineVersion; // e.g. "5.6.1", empty if not found
+    std::string problem;       // why the last attempt failed (diagnostics, Spanish)
 };
 
 // Runs every step that is still pending. Safe to call repeatedly from a worker thread;

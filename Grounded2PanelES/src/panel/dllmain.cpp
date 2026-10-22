@@ -88,6 +88,12 @@ DWORD WINAPI Startup(LPVOID) {
     for (int attempt = 0;; ++attempt) {
         if (Resolver::Run(report)) break;
         if (attempt == 0) Session::SetStartupMessage(L"Buscando las estructuras internas del juego…", false);
+        if (attempt == 15 || attempt == 60 || attempt % 300 == 299) {
+            Log::Warn("Inicio", "Sigue sin localizarse: " + report.problem);
+            Session::SetStartupMessage(L"Buscando las estructuras internas del juego… (" + Paths::Wide(report.problem) +
+                                           L"). Si sigue así, copia el diagnóstico desde el iniciador.",
+                                       false);
+        }
         if (attempt == 600) {
             Log::Error("Inicio", "No se localizaron las estructuras del motor tras 10 minutos");
             Session::SetStartupMessage(L"No se pudieron localizar las estructuras del juego. Esta versión de Grounded 2 no es compatible "
@@ -111,12 +117,35 @@ DWORD WINAPI Startup(LPVOID) {
 
     auto* controllerClass = Reflect::FindClass("SurvivalPlayerController");
     bool idleReported = false;
+    std::string lastSeen;
+    bool hudHooked = false;
+    uint64_t hookedAt = 0;
     for (;;) {
         const bool ticking = Hooks::TickInstalled() && GetTickCount64() - Session::LastTickMs() < 4000;
         if (!ticking) {
             if (!controllerClass) controllerClass = Reflect::FindClass("SurvivalPlayerController");
             auto* controller = LocalController();
-            if (controller && controllerClass && controller->IsA(controllerClass)) Hooks::InstallTick(controller);
+            if (controller && controllerClass && controller->IsA(controllerClass)) {
+                if (Hooks::InstallTick(controller) && !hookedAt) hookedAt = GetTickCount64();
+                // Hooked but silent: the controller's class may not run script events every frame.
+                // The HUD draws (ReceiveDrawHUD) every frame, so hook it as well.
+                if (hookedAt && GetTickCount64() - hookedAt > 8000 && GetTickCount64() - Session::LastTickMs() > 8000) {
+                    auto* hud = Reflect::Obj<SDK::UObject>(controller, "MyHUD");
+                    if (LiveObject(hud) && Hooks::InstallTick(hud) && !hudHooked) {
+                        Log::Warn("Inicio", "El controlador no genera actividad; se usa también la HUD (" + hud->Class->GetName() + ")");
+                        hudHooked = true;
+                    }
+                }
+            } else {
+                // Log what we see (once per situation) so a stuck "waiting" state can be diagnosed.
+                std::string seen = !controllerClass ? "no existe la clase SurvivalPlayerController"
+                                   : controller     ? "controlador local de clase " + controller->Class->GetName()
+                                                    : "sin controlador local (menú o pantalla de carga)";
+                if (seen != lastSeen) {
+                    Log::Info("Inicio", "Esperando partida: " + seen);
+                    lastSeen = seen;
+                }
+            }
             if (Hooks::TickInstalled() && !idleReported) {
                 Session::MarkIdle();
                 idleReported = true;

@@ -5,12 +5,36 @@
 
 #include <tlhelp32.h>
 
+#include <cwctype>
+
 namespace Inject {
 namespace {
 
-bool IsGameExe(const wchar_t* name) {
-    std::wstring exe(name);
-    return (exe.starts_with(L"Grounded2") || exe.starts_with(L"grounded2")) && exe.ends_with(L"-Shipping.exe");
+std::wstring Lower(std::wstring text) {
+    for (auto& c : text) c = static_cast<wchar_t>(towlower(c));
+    return text;
+}
+
+bool IsOurTool(const std::wstring& lower) {
+    return lower == L"iniciarpanel.exe" || lower == L"vistaprevia.exe" || lower == L"pruebamotor.exe";
+}
+
+// Game executables seen so far: Grounded2Steam-Win64-Shipping.exe, Grounded2-WinGRTS-Shipping.exe,
+// Grounded2-WinGDK-Shipping.exe. Anything with "grounded" and "shipping" is accepted.
+bool LooksLikeGame(const std::wstring& lower) {
+    return lower.find(L"grounded") != std::wstring::npos && lower.find(L"shipping") != std::wstring::npos;
+}
+
+std::wstring ImageName(DWORD pid) {
+    HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+    if (!process) return {};
+    std::wstring path(32768, L'\0');
+    DWORD size = static_cast<DWORD>(path.size());
+    if (!QueryFullProcessImageNameW(process, 0, path.data(), &size)) size = 0;
+    CloseHandle(process);
+    path.resize(size);
+    const auto slash = path.find_last_of(L"\\/");
+    return slash == std::wstring::npos ? path : path.substr(slash + 1);
 }
 
 uintptr_t ModuleBase(DWORD pid, const wchar_t* name) {
@@ -30,46 +54,77 @@ uintptr_t ModuleBase(DWORD pid, const wchar_t* name) {
 }
 
 struct WindowSearch {
-    DWORD pid;
-    bool found;
+    DWORD pid = 0;          // 0 = any process
+    bool found = false;
+    DWORD foundPid = 0;
+    std::wstring title;
 };
 
+// Visible Unreal window whose title or executable says Grounded.
 BOOL CALLBACK FindGameWindow(HWND hwnd, LPARAM param) {
     auto* search = reinterpret_cast<WindowSearch*>(param);
     DWORD pid = 0;
     GetWindowThreadProcessId(hwnd, &pid);
-    if (pid != search->pid || !IsWindowVisible(hwnd)) return TRUE;
+    if ((search->pid && pid != search->pid) || !IsWindowVisible(hwnd)) return TRUE;
     wchar_t className[64] = {};
     GetClassNameW(hwnd, className, 64);
-    if (std::wstring(className) == L"UnrealWindow") {
-        search->found = true;
-        return FALSE;
-    }
-    return TRUE;
+    if (std::wstring(className) != L"UnrealWindow") return TRUE;
+    wchar_t title[256] = {};
+    GetWindowTextW(hwnd, title, 256);
+    const bool groundedTitle = Lower(title).find(L"grounded") != std::wstring::npos;
+    if (!search->pid && !groundedTitle && Lower(ImageName(pid)).find(L"grounded") == std::wstring::npos) return TRUE;
+    search->found = true;
+    search->foundPid = pid;
+    search->title = title;
+    return FALSE;
 }
 
 } // namespace
 
 Game Find() {
     Game game;
+    // 1) Process list: remember every "grounded" process for diagnostics, prefer the shipping one.
     HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-    if (snapshot == INVALID_HANDLE_VALUE) return game;
-    PROCESSENTRY32W process{};
-    process.dwSize = sizeof(process);
-    if (Process32FirstW(snapshot, &process)) do {
-            if (IsGameExe(process.szExeFile)) {
-                game.pid = process.th32ProcessID;
-                game.exeName = process.szExeFile;
-                break;
-            }
-        } while (Process32NextW(snapshot, &process));
-    CloseHandle(snapshot);
-    if (!game.pid) return game;
-    game.panelLoaded = ModuleBase(game.pid, L"Grounded2PanelES.dll") != 0;
-    game.otherModLoaded = ModuleBase(game.pid, L"Grounded2Minimal.dll") != 0;
-    WindowSearch search{game.pid, false};
+    if (snapshot != INVALID_HANDLE_VALUE) {
+        PROCESSENTRY32W process{};
+        process.dwSize = sizeof(process);
+        if (Process32FirstW(snapshot, &process)) do {
+                const std::wstring lower = Lower(process.szExeFile);
+                if (lower.find(L"grounded") == std::wstring::npos || IsOurTool(lower)) continue;
+                game.candidates.push_back(std::wstring(process.szExeFile) + L" (PID " + std::to_wstring(process.th32ProcessID) + L")");
+                if (!game.pid && LooksLikeGame(lower)) {
+                    game.pid = process.th32ProcessID;
+                    game.exeName = process.szExeFile;
+                }
+            } while (Process32NextW(snapshot, &process));
+        CloseHandle(snapshot);
+    }
+    // 2) By window: works even if a future update renames the executable.
+    WindowSearch search;
+    search.pid = game.pid;
     EnumWindows(FindGameWindow, reinterpret_cast<LPARAM>(&search));
+    if (!search.found && game.pid) {
+        search = {};
+        EnumWindows(FindGameWindow, reinterpret_cast<LPARAM>(&search));
+        if (search.found && search.foundPid != game.pid) {
+            game.pid = search.foundPid;
+            game.exeName = ImageName(search.foundPid);
+        }
+    }
+    if (!game.pid && search.found) {
+        game.pid = search.foundPid;
+        game.exeName = ImageName(search.foundPid);
+    }
+    if (!game.pid) return game;
     game.windowReady = search.found;
+    game.windowTitle = search.title;
+    if (game.exeName.empty()) game.exeName = L"PID " + std::to_wstring(game.pid);
+    // Modules can only be listed if we may open the process (not when the game runs as administrator).
+    HANDLE probe = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, game.pid);
+    game.elevated = probe == nullptr && GetLastError() == ERROR_ACCESS_DENIED;
+    if (probe) CloseHandle(probe);
+    game.panelLoaded = ModuleBase(game.pid, L"Grounded2PanelES.dll") != 0 || FindWindowW(L"Grounded2PanelES", nullptr) != nullptr;
+    game.otherModLoaded = ModuleBase(game.pid, L"Grounded2Minimal.dll") != 0;
     return game;
 }
 
